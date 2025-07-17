@@ -92,15 +92,15 @@ resource "aws_eks_addon" "kube_proxy" {
   depends_on = [aws_eks_cluster.main]
 }
 
-resource "aws_eks_addon" "coredns" {
-  cluster_name      = aws_eks_cluster.main.name
-  addon_name        = "coredns"
-  addon_version     = data.aws_eks_addon_version.coredns.version
-  resolve_conflicts_on_create = "OVERWRITE"
-  resolve_conflicts_on_update = "OVERWRITE"
+# resource "aws_eks_addon" "coredns" {
+#   cluster_name      = aws_eks_cluster.main.name
+#   addon_name        = "coredns"
+#   addon_version     = data.aws_eks_addon_version.coredns.version
+#   resolve_conflicts_on_create = "OVERWRITE"
+#   resolve_conflicts_on_update = "OVERWRITE"
 
-  depends_on = [aws_eks_cluster.main]
-}
+#   depends_on = [aws_eks_cluster.main]
+# }
 
 # OIDC Identity Provider (only after cluster is fully ready)
 data "tls_certificate" "eks_cluster" {
