@@ -59,11 +59,12 @@ resource "aws_launch_template" "eks_nodes" {
   }
 
   # Instance tags applied at launch
+  # Instance tags applied at launch (✅ Correct placement)
   tag_specifications {
     resource_type = "instance"
     tags = {
       Name = "bsp-eks-cluster-worker-node"
-      "kubernetes.io/cluster/bsp-eks-cluster" = "owned"  # Required for EKS
+      "kubernetes.io/cluster/bsp-eks-cluster" = "owned"  # ✅ Required for EKS
       Environment = "poc"
       Project     = "bsp"
     }
@@ -98,7 +99,7 @@ resource "aws_instance" "eks_node_1" {
 
   tags = {
     Name = "osdu-node-1"  # Custom node name as requested
-    "kubernetes.io/cluster/bsp-eks-cluster" = "owned"
+    # "kubernetes.io/cluster/bsp-eks-cluster" = "owned"
     Environment = "poc"
     Project     = "bsp"
     NodeNumber  = "1"
@@ -122,7 +123,7 @@ resource "aws_instance" "eks_node_2" {
 
   tags = {
     Name = "osdu-node-2"  # Custom node name as requested
-    "kubernetes.io/cluster/bsp-eks-cluster" = "owned"
+    # "kubernetes.io/cluster/bsp-eks-cluster" = "owned"
     Environment = "poc"
     Project     = "bsp"
     NodeNumber  = "2"
@@ -146,7 +147,7 @@ resource "aws_instance" "eks_node_3" {
 
   tags = {
     Name = "osdu-node-3"  # Custom node name as requested
-    "kubernetes.io/cluster/bsp-eks-cluster" = "owned"
+    # "kubernetes.io/cluster/bsp-eks-cluster" = "owned"
     Environment = "poc"
     Project     = "bsp"
     NodeNumber  = "3"
