@@ -271,7 +271,7 @@ resource "aws_instance" "eks_node_1" {
 
   tags = {
     Name                                     = "osdu-node-1"  # Custom node name as requested
-    "kubernetes.io/cluster/bsp-eks-cluster1" = "owned"        # EKS cluster tag (FIXED)
+    # "kubernetes.io/cluster/bsp-eks-cluster1" = "owned"        # EKS cluster tag (FIXED)
     Environment                              = "poc"
     Project                                  = "bsp"
     NodeNumber                               = "1"
@@ -295,7 +295,7 @@ resource "aws_instance" "eks_node_2" {
 
   tags = {
     Name                                     = "osdu-node-2"  # Custom node name as requested
-    "kubernetes.io/cluster/bsp-eks-cluster1" = "owned"        # EKS cluster tag (FIXED)
+    # "kubernetes.io/cluster/bsp-eks-cluster1" = "owned"        # EKS cluster tag (FIXED)
     Environment                              = "poc"
     Project                                  = "bsp"
     NodeNumber                               = "2"
@@ -319,7 +319,7 @@ resource "aws_instance" "eks_node_3" {
 
   tags = {
     Name                                     = "osdu-node-3"  # Custom node name as requested
-    "kubernetes.io/cluster/bsp-eks-cluster1" = "owned"        # EKS cluster tag (FIXED)
+    # "kubernetes.io/cluster/bsp-eks-cluster1" = "owned"        # EKS cluster tag (FIXED)
     Environment                              = "poc"
     Project                                  = "bsp"
     NodeNumber                               = "3"
