@@ -209,7 +209,7 @@ data "aws_ami" "eks_worker" {
 # User data script for worker nodes
 locals {
   userdata = base64encode(templatefile("${path.module}/userdata.sh", {
-    cluster_name        = "bsp-eks-cluster"                    # Fixed: Match cluster name
+    cluster_name        = "bsp-eks-cluster1"                    # Fixed: Match cluster name
     bootstrap_arguments = "--container-runtime containerd --kubelet-extra-args '--max-pods=17'"  # Hardcoded bootstrap args
   }))
 }
