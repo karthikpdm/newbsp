@@ -1,3 +1,5 @@
+# File: iam-roles.tf - Fixed version
+# EKS Cluster Service Role
 resource "aws_iam_role" "eks_cluster_role" {
   name = "bsp-eks-cluster-role"
 
@@ -25,7 +27,7 @@ resource "aws_iam_role_policy_attachment" "eks_cluster_policy" {
   role       = aws_iam_role.eks_cluster_role.name
 }
 
-# EKS Node Group Service Role
+# EKS Node Service Role
 resource "aws_iam_role" "eks_node_role" {
   name = "bsp-eks-node-role"
 
@@ -63,13 +65,7 @@ resource "aws_iam_role_policy_attachment" "eks_container_registry_policy" {
   role       = aws_iam_role.eks_node_role.name
 }
 
-# Additional policy for EBS CSI Driver
-resource "aws_iam_role_policy_attachment" "eks_ebs_csi_policy" {
-  policy_arn = "arn:aws:iam::aws:policy/service-role/Amazon_EBS_CSI_DriverPolicy"
-  role       = aws_iam_role.eks_node_role.name
-}
-
-# Instance Profile for EC2 nodes (THIS WAS MISSING!)
+# Instance Profile for EC2 nodes
 resource "aws_iam_instance_profile" "eks_node_profile" {
   name = "bsp-eks-node-profile"
   role = aws_iam_role.eks_node_role.name
@@ -98,7 +94,11 @@ resource "aws_iam_role_policy" "eks_node_additional_policy" {
           "logs:CreateLogStream",
           "logs:PutLogEvents",
           "logs:DescribeLogGroups",
-          "logs:DescribeLogStreams"
+          "logs:DescribeLogStreams",
+          "ec2:DescribeInstances",
+          "ec2:DescribeNetworkInterfaces",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeSecurityGroups"
         ]
         Resource = "*"
       }

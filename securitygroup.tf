@@ -1,8 +1,8 @@
-# security-groups.tf
+# File: security-groups.tf - Fixed version
 # EKS Cluster Security Group
 resource "aws_security_group" "eks_cluster" {
-  name        = "eks-cluster-sg"
-  description = "Security group for EKS cluster"
+  name        = "bsp-eks-cluster-sg"
+  description = "Security group for EKS cluster control plane"
   vpc_id      = data.aws_vpc.existing.id
 
   ingress {
@@ -22,48 +22,35 @@ resource "aws_security_group" "eks_cluster" {
   }
 
   tags = {
-    Name = "eks-cluster-sg"
+    Name = "bsp-eks-cluster-sg"
   }
 }
 
 # EKS Worker Nodes Security Group
 resource "aws_security_group" "eks_nodes" {
-  name        = "eks-nodes-sg"
+  name        = "bsp-eks-nodes-sg"
   description = "Security group for EKS worker nodes"
   vpc_id      = data.aws_vpc.existing.id
 
+  # Allow all traffic between nodes
   ingress {
-    description = "Node to node communication"
+    description = "All traffic from nodes"
     from_port   = 0
-    to_port     = 65535
-    protocol    = "tcp"
+    to_port     = 0
+    protocol    = "-1"
     self        = true
   }
 
+  # Allow traffic from cluster security group
   ingress {
-    description     = "Cluster API to node groups"
-    from_port       = 1025
-    to_port         = 65535
-    protocol        = "tcp"
+    description     = "All traffic from cluster"
+    from_port       = 0
+    to_port         = 0
+    protocol        = "-1"
     security_groups = [aws_security_group.eks_cluster.id]
   }
 
-  ingress {
-    description     = "Cluster API to node kubelets"
-    from_port       = 443
-    to_port         = 443
-    protocol        = "tcp"
-    security_groups = [aws_security_group.eks_cluster.id]
-  }
-
-  ingress {
-    description     = "Node groups to cluster API"
-    from_port       = 443
-    to_port         = 443
-    protocol        = "tcp"
-    security_groups = [aws_security_group.eks_cluster.id]
-  }
-
+  # SSH access from VPC
   ingress {
     description = "SSH access"
     from_port   = 22
@@ -72,6 +59,7 @@ resource "aws_security_group" "eks_nodes" {
     cidr_blocks = [data.aws_vpc.existing.cidr_block]
   }
 
+  # Allow all outbound traffic
   egress {
     description = "All outbound traffic"
     from_port   = 0
@@ -81,17 +69,17 @@ resource "aws_security_group" "eks_nodes" {
   }
 
   tags = {
-    Name = "eks-nodes-sg"
+    Name = "bsp-eks-nodes-sg"
   }
 }
 
-# Add ingress rule to cluster security group for node communication
-resource "aws_security_group_rule" "cluster_ingress_node_https" {
+# Additional security group rules (separate resources to avoid conflicts)
+resource "aws_security_group_rule" "cluster_to_nodes" {
   type                     = "ingress"
-  from_port                = 443
-  to_port                  = 443
-  protocol                 = "tcp"
+  from_port                = 0
+  to_port                  = 0
+  protocol                 = "-1"
   source_security_group_id = aws_security_group.eks_nodes.id
   security_group_id        = aws_security_group.eks_cluster.id
-  description              = "Allow nodes to communicate with cluster API"
+  description              = "Allow all traffic from nodes to cluster"
 }
