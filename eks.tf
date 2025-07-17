@@ -1,7 +1,7 @@
 # eks-cluster.tf
 # EKS Cluster - Private Configuration
 resource "aws_eks_cluster" "main" {
-  name     = "bsp-eks-cluster1"
+  name     = "bsp-eks-cluster11"
   role_arn = aws_iam_role.eks_cluster_role.arn
   version  = "1.31"
 
@@ -30,18 +30,18 @@ resource "aws_eks_cluster" "main" {
   ]
 
   tags = {
-    Name = "bsp-eks-cluster"
+    Name = "bsp-eks-cluster1"
     Environment = "poc"
   }
 }
 
 # CloudWatch Log Group for EKS cluster logging
 resource "aws_cloudwatch_log_group" "eks_cluster" {
-  name              = "/aws/eks/bsp-eks-cluster/cluster"
+  name              = "/aws/eks/bsp-eks-cluster11/cluster"
   retention_in_days = 7
 
   tags = {
-    Name = "bsp-eks-cluster-logs"
+    Name = "bsp-eks-cluster1-logs"
   }
 }
 
@@ -117,7 +117,7 @@ resource "aws_eks_addon" "kube_proxy" {
 #   depends_on = [aws_eks_cluster.main]
 
 #   tags = {
-#     Name = "bsp-eks-cluster-oidc-provider"
+#     Name = "bsp-eks-cluster1-oidc-provider"
 #   }
 # }
 
@@ -144,7 +144,7 @@ resource "aws_eks_addon" "kube_proxy" {
 
 # # IAM Role for VPC CNI Service Account
 # resource "aws_iam_role" "vpc_cni_role" {
-#   name = "bsp-eks-cluster-vpc-cni-role"
+#   name = "bsp-eks-cluster1-vpc-cni-role"
 
 #   assume_role_policy = jsonencode({
 #     Version = "2012-10-17"
@@ -166,7 +166,7 @@ resource "aws_eks_addon" "kube_proxy" {
 #   })
 
 #   tags = {
-#     Name = "bsp-eks-cluster-vpc-cni-role"
+#     Name = "bsp-eks-cluster1-vpc-cni-role"
 #   }
 # }
 
@@ -239,6 +239,7 @@ resource "aws_eks_addon" "kube_proxy" {
 # # }
 
 
+
 # ####################################################################################################################################################################
 
 # resource "aws_eks_addon" "kube_proxy" {
@@ -282,7 +283,7 @@ resource "aws_eks_addon" "kube_proxy" {
 
 # # IAM Role for EBS CSI Driver
 # resource "aws_iam_role" "ebs_csi_driver_role" {
-#   name = "bsp-eks-cluster-ebs-csi-driver-role"
+#   name = "bsp-eks-cluster1-ebs-csi-driver-role"
 
 #   assume_role_policy = jsonencode({
 #     Version = "2012-10-17"
@@ -304,7 +305,7 @@ resource "aws_eks_addon" "kube_proxy" {
 #   })
 
 #   tags = {
-#     Name = "bsp-eks-cluster-ebs-csi-driver-role"
+#     Name = "bsp-eks-cluster1-ebs-csi-driver-role"
 #   }
 # }
 
@@ -327,7 +328,7 @@ resource "aws_eks_addon" "kube_proxy" {
 #   url             = aws_eks_cluster.main.identity[0].oidc[0].issuer
 
 #   tags = {
-#     Name = "bsp-eks-cluster-oidc-provider"
+#     Name = "bsp-eks-cluster1-oidc-provider"
 #   }
 # }
 
