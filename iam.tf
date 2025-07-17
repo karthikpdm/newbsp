@@ -111,3 +111,19 @@ resource "aws_iam_role_policy" "eks_node_additional_policy" {
     ]
   })
 }
+
+
+
+
+# EKS Access Entry for Node Role (REQUIRED for API-based access)
+resource "aws_eks_access_entry" "node_role" {
+  cluster_name  = aws_eks_cluster.main.name
+  principal_arn = aws_iam_role.eks_node_role.arn
+  type          = "EC2_LINUX"  # For EC2 worker nodes
+
+  depends_on = [aws_eks_cluster.main]
+
+  tags = {
+    Name = "bsp-eks-cluster-node-access"
+  }
+}
