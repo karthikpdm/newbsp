@@ -247,7 +247,7 @@ resource "aws_launch_template" "eks_nodes" {
     http_endpoint               = "enabled"   # Enable metadata service
     http_tokens                 = "required"  # Require session tokens (IMDSv2)
     http_put_response_hop_limit = 2          # Limit metadata access hops
-    instance_metadata_tags      = "enabled"  # Enable instance tags in metadata
+    instance_metadata_tags      = "disabled"  # Enable instance tags in metadata
   }
 
   depends_on = [
