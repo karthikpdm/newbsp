@@ -1,7 +1,7 @@
 # File: security-groups.tf - Fixed version
 # EKS Cluster Security Group
 resource "aws_security_group" "eks_cluster" {
-  name        = "bsp-eks-cluster-sg"
+  name        = "bsp-eks-clusters-sg"
   description = "Security group for EKS cluster control plane"
   vpc_id      = data.aws_vpc.existing.id
 
