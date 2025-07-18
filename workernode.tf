@@ -411,140 +411,205 @@ resource "aws_instance" "eks_node_frontend" {
   ]
 }
 
-# Apply labels to nodes after they join the cluster
-resource "null_resource" "label_osdu_istio_keycloak" {
+# # Apply labels to nodes after they join the cluster
+# resource "null_resource" "label_osdu_istio_keycloak" {
+#   provisioner "local-exec" {
+#     command = <<-EOT
+#       # Wait for node to be ready
+#       echo "Waiting for osdu-istio-keycloak node to be ready..."
+#       kubectl wait --for=condition=Ready node/osdu-istio-keycloak --timeout=300s
+      
+#       # Apply labels
+#       kubectl label nodes osdu-istio-keycloak node-role=osdu-istio-keycloak --overwrite
+#       kubectl label nodes osdu-istio-keycloak component=infrastructure --overwrite
+#       kubectl label nodes osdu-istio-keycloak workload=istio --overwrite
+#       kubectl label nodes osdu-istio-keycloak workload=keycloak --overwrite
+#       kubectl label nodes osdu-istio-keycloak environment=poc --overwrite
+      
+#       echo "Labels applied to osdu-istio-keycloak node"
+#     EOT
+#   }
+
+#   depends_on = [aws_instance.eks_node_istio_keycloak]
+
+#   triggers = {
+#     node_id = aws_instance.eks_node_istio_keycloak.id
+#   }
+# }
+
+# resource "null_resource" "label_osdu_backend" {
+#   provisioner "local-exec" {
+#     command = <<-EOT
+#       # Wait for node to be ready
+#       echo "Waiting for osdu-backend node to be ready..."
+#       kubectl wait --for=condition=Ready node/osdu-backend --timeout=300s
+      
+#       # Apply labels
+#       kubectl label nodes osdu-backend node-role=osdu-backend --overwrite
+#       kubectl label nodes osdu-backend component=application --overwrite
+#       kubectl label nodes osdu-backend workload=backend --overwrite
+#       kubectl label nodes osdu-backend tier=backend --overwrite
+#       kubectl label nodes osdu-backend environment=poc --overwrite
+      
+#       echo "Labels applied to osdu-backend node"
+#     EOT
+#   }
+
+#   depends_on = [aws_instance.eks_node_backend]
+
+#   triggers = {
+#     node_id = aws_instance.eks_node_backend.id
+#   }
+# }
+
+# resource "null_resource" "label_osdu_frontend" {
+#   provisioner "local-exec" {
+#     command = <<-EOT
+#       # Wait for node to be ready
+#       echo "Waiting for osdu-frontend node to be ready..."
+#       kubectl wait --for=condition=Ready node/osdu-frontend --timeout=300s
+      
+#       # Apply labels
+#       kubectl label nodes osdu-frontend node-role=osdu-frontend --overwrite
+#       kubectl label nodes osdu-frontend component=presentation --overwrite
+#       kubectl label nodes osdu-frontend workload=frontend --overwrite
+#       kubectl label nodes osdu-frontend tier=frontend --overwrite
+#       kubectl label nodes osdu-frontend environment=poc --overwrite
+      
+#       echo "Labels applied to osdu-frontend node"
+#     EOT
+#   }
+
+#   depends_on = [aws_instance.eks_node_frontend]
+
+#   triggers = {
+#     node_id = aws_instance.eks_node_frontend.id
+#   }
+# }
+
+# # Output node information
+# output "eks_nodes_info" {
+#   description = "Information about the EKS nodes and their labels"
+#   value = {
+#     "osdu-istio-keycloak" = {
+#       instance_id = aws_instance.eks_node_istio_keycloak.id
+#       private_ip  = aws_instance.eks_node_istio_keycloak.private_ip
+#       az          = aws_instance.eks_node_istio_keycloak.availability_zone
+#       role        = "Infrastructure (Istio + Keycloak)"
+#       labels = [
+#         "node-role=osdu-istio-keycloak",
+#         "component=infrastructure", 
+#         "workload=istio",
+#         "workload=keycloak",
+#         "environment=poc"
+#       ]
+#     }
+#     "osdu-backend" = {
+#       instance_id = aws_instance.eks_node_backend.id
+#       private_ip  = aws_instance.eks_node_backend.private_ip
+#       az          = aws_instance.eks_node_backend.availability_zone
+#       role        = "Application Backend"
+#       labels = [
+#         "node-role=osdu-backend",
+#         "component=application",
+#         "workload=backend",
+#         "tier=backend", 
+#         "environment=poc"
+#       ]
+#     }
+#     "osdu-frontend" = {
+#       instance_id = aws_instance.eks_node_frontend.id
+#       private_ip  = aws_instance.eks_node_frontend.private_ip
+#       az          = aws_instance.eks_node_frontend.availability_zone
+#       role        = "Presentation Frontend"
+#       labels = [
+#         "node-role=osdu-frontend",
+#         "component=presentation",
+#         "workload=frontend",
+#         "tier=frontend",
+#         "environment=poc"
+#       ]
+#     }
+#   }
+# }
+
+# # Output kubectl commands to verify labels
+# output "verify_labels_commands" {
+#   description = "Commands to verify node labels"
+#   value = {
+#     "check_all_nodes" = "kubectl get nodes --show-labels"
+#     "check_istio_keycloak" = "kubectl describe node osdu-istio-keycloak"
+#     "check_backend" = "kubectl describe node osdu-backend"
+#     "check_frontend" = "kubectl describe node osdu-frontend"
+#     "get_nodes_by_role" = {
+#       "istio_keycloak" = "kubectl get nodes -l node-role=osdu-istio-keycloak"
+#       "backend" = "kubectl get nodes -l node-role=osdu-backend"
+#       "frontend" = "kubectl get nodes -l node-role=osdu-frontend"
+#     }
+#   }
+# }
+
+
+# Simple labeling after nodes are created
+resource "null_resource" "label_nodes" {
   provisioner "local-exec" {
     command = <<-EOT
-      # Wait for node to be ready
-      echo "Waiting for osdu-istio-keycloak node to be ready..."
-      kubectl wait --for=condition=Ready node/osdu-istio-keycloak --timeout=300s
+      echo "Waiting for nodes to join cluster..."
+      sleep 60
       
-      # Apply labels
-      kubectl label nodes osdu-istio-keycloak node-role=osdu-istio-keycloak --overwrite
-      kubectl label nodes osdu-istio-keycloak component=infrastructure --overwrite
-      kubectl label nodes osdu-istio-keycloak workload=istio --overwrite
-      kubectl label nodes osdu-istio-keycloak workload=keycloak --overwrite
-      kubectl label nodes osdu-istio-keycloak environment=poc --overwrite
+      echo "Getting node hostnames from EC2 instances..."
       
-      echo "Labels applied to osdu-istio-keycloak node"
+      # Get the internal hostnames of our instances
+      ISTIO_HOSTNAME=$(aws ec2 describe-instances --instance-ids ${aws_instance.eks_node_istio_keycloak.id} --query 'Reservations[0].Instances[0].PrivateDnsName' --output text)
+      BACKEND_HOSTNAME=$(aws ec2 describe-instances --instance-ids ${aws_instance.eks_node_backend.id} --query 'Reservations[0].Instances[0].PrivateDnsName' --output text)
+      FRONTEND_HOSTNAME=$(aws ec2 describe-instances --instance-ids ${aws_instance.eks_node_frontend.id} --query 'Reservations[0].Instances[0].PrivateDnsName' --output text)
+      
+      echo "Hostnames found:"
+      echo "Istio/Keycloak: $ISTIO_HOSTNAME"
+      echo "Backend: $BACKEND_HOSTNAME"  
+      echo "Frontend: $FRONTEND_HOSTNAME"
+      
+      echo "Waiting for nodes to be ready in Kubernetes..."
+      kubectl wait --for=condition=Ready node/$ISTIO_HOSTNAME --timeout=300s
+      kubectl wait --for=condition=Ready node/$BACKEND_HOSTNAME --timeout=300s
+      kubectl wait --for=condition=Ready node/$FRONTEND_HOSTNAME --timeout=300s
+      
+      echo "Labeling nodes..."
+      
+      # Label osdu-istio-keycloak node
+      kubectl label node $ISTIO_HOSTNAME node-role=osdu-istio-keycloak --overwrite
+      kubectl label node $ISTIO_HOSTNAME component=infrastructure --overwrite
+      kubectl label node $ISTIO_HOSTNAME workload=istio --overwrite
+      kubectl label node $ISTIO_HOSTNAME workload=keycloak --overwrite
+      kubectl label node $ISTIO_HOSTNAME environment=poc --overwrite
+      
+      # Label osdu-backend node
+      kubectl label node $BACKEND_HOSTNAME node-role=osdu-backend --overwrite
+      kubectl label node $BACKEND_HOSTNAME component=application --overwrite
+      kubectl label node $BACKEND_HOSTNAME workload=backend --overwrite
+      kubectl label node $BACKEND_HOSTNAME tier=backend --overwrite
+      kubectl label node $BACKEND_HOSTNAME environment=poc --overwrite
+      
+      # Label osdu-frontend node
+      kubectl label node $FRONTEND_HOSTNAME node-role=osdu-frontend --overwrite
+      kubectl label node $FRONTEND_HOSTNAME component=presentation --overwrite
+      kubectl label node $FRONTEND_HOSTNAME workload=frontend --overwrite
+      kubectl label node $FRONTEND_HOSTNAME tier=frontend --overwrite
+      kubectl label node $FRONTEND_HOSTNAME environment=poc --overwrite
+      
+      echo "All nodes labeled successfully!"
+      echo "Verifying labels..."
+      kubectl get nodes --show-labels | grep -E "(node-role|component)"
     EOT
   }
 
-  depends_on = [aws_instance.eks_node_istio_keycloak]
+  depends_on = [
+    aws_instance.eks_node_istio_keycloak,
+    aws_instance.eks_node_backend,
+    aws_instance.eks_node_frontend,
+  ]
 
   triggers = {
-    node_id = aws_instance.eks_node_istio_keycloak.id
-  }
-}
-
-resource "null_resource" "label_osdu_backend" {
-  provisioner "local-exec" {
-    command = <<-EOT
-      # Wait for node to be ready
-      echo "Waiting for osdu-backend node to be ready..."
-      kubectl wait --for=condition=Ready node/osdu-backend --timeout=300s
-      
-      # Apply labels
-      kubectl label nodes osdu-backend node-role=osdu-backend --overwrite
-      kubectl label nodes osdu-backend component=application --overwrite
-      kubectl label nodes osdu-backend workload=backend --overwrite
-      kubectl label nodes osdu-backend tier=backend --overwrite
-      kubectl label nodes osdu-backend environment=poc --overwrite
-      
-      echo "Labels applied to osdu-backend node"
-    EOT
-  }
-
-  depends_on = [aws_instance.eks_node_backend]
-
-  triggers = {
-    node_id = aws_instance.eks_node_backend.id
-  }
-}
-
-resource "null_resource" "label_osdu_frontend" {
-  provisioner "local-exec" {
-    command = <<-EOT
-      # Wait for node to be ready
-      echo "Waiting for osdu-frontend node to be ready..."
-      kubectl wait --for=condition=Ready node/osdu-frontend --timeout=300s
-      
-      # Apply labels
-      kubectl label nodes osdu-frontend node-role=osdu-frontend --overwrite
-      kubectl label nodes osdu-frontend component=presentation --overwrite
-      kubectl label nodes osdu-frontend workload=frontend --overwrite
-      kubectl label nodes osdu-frontend tier=frontend --overwrite
-      kubectl label nodes osdu-frontend environment=poc --overwrite
-      
-      echo "Labels applied to osdu-frontend node"
-    EOT
-  }
-
-  depends_on = [aws_instance.eks_node_frontend]
-
-  triggers = {
-    node_id = aws_instance.eks_node_frontend.id
-  }
-}
-
-# Output node information
-output "eks_nodes_info" {
-  description = "Information about the EKS nodes and their labels"
-  value = {
-    "osdu-istio-keycloak" = {
-      instance_id = aws_instance.eks_node_istio_keycloak.id
-      private_ip  = aws_instance.eks_node_istio_keycloak.private_ip
-      az          = aws_instance.eks_node_istio_keycloak.availability_zone
-      role        = "Infrastructure (Istio + Keycloak)"
-      labels = [
-        "node-role=osdu-istio-keycloak",
-        "component=infrastructure", 
-        "workload=istio",
-        "workload=keycloak",
-        "environment=poc"
-      ]
-    }
-    "osdu-backend" = {
-      instance_id = aws_instance.eks_node_backend.id
-      private_ip  = aws_instance.eks_node_backend.private_ip
-      az          = aws_instance.eks_node_backend.availability_zone
-      role        = "Application Backend"
-      labels = [
-        "node-role=osdu-backend",
-        "component=application",
-        "workload=backend",
-        "tier=backend", 
-        "environment=poc"
-      ]
-    }
-    "osdu-frontend" = {
-      instance_id = aws_instance.eks_node_frontend.id
-      private_ip  = aws_instance.eks_node_frontend.private_ip
-      az          = aws_instance.eks_node_frontend.availability_zone
-      role        = "Presentation Frontend"
-      labels = [
-        "node-role=osdu-frontend",
-        "component=presentation",
-        "workload=frontend",
-        "tier=frontend",
-        "environment=poc"
-      ]
-    }
-  }
-}
-
-# Output kubectl commands to verify labels
-output "verify_labels_commands" {
-  description = "Commands to verify node labels"
-  value = {
-    "check_all_nodes" = "kubectl get nodes --show-labels"
-    "check_istio_keycloak" = "kubectl describe node osdu-istio-keycloak"
-    "check_backend" = "kubectl describe node osdu-backend"
-    "check_frontend" = "kubectl describe node osdu-frontend"
-    "get_nodes_by_role" = {
-      "istio_keycloak" = "kubectl get nodes -l node-role=osdu-istio-keycloak"
-      "backend" = "kubectl get nodes -l node-role=osdu-backend"
-      "frontend" = "kubectl get nodes -l node-role=osdu-frontend"
-    }
+    node_ids = "${aws_instance.eks_node_istio_keycloak.id}-${aws_instance.eks_node_backend.id}-${aws_instance.eks_node_frontend.id}"
   }
 }
