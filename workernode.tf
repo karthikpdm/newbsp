@@ -260,8 +260,84 @@ resource "aws_launch_template" "eks_nodes" {
   }
 }
 
-# Worker Node 1 - AZ1 (osdu-node-1)
-resource "aws_instance" "eks_node_1" {
+# # Worker Node 1 - AZ1 (osdu-node-1)
+# resource "aws_instance" "eks_node_1" {
+#   launch_template {
+#     id      = aws_launch_template.eks_nodes.id
+#     version = "$Latest"
+#   }
+
+#   subnet_id = data.aws_subnet.private_az1.id
+
+#   tags = {
+#     Name                                     = "osdu-node-1"  # Custom node name as requested
+#     "kubernetes.io/cluster/bsp-eks-cluster11" = "owned"        # EKS cluster tag (FIXED)
+#     Environment                              = "poc"
+#     Project                                  = "bsp"
+#     NodeNumber                               = "1"
+#     AZ                                       = "az1"
+#   }
+
+#   depends_on = [
+#     aws_eks_cluster.main,
+#     aws_eks_addon.vpc_cni,
+#   ]
+# }
+
+# # Worker Node 2 - AZ2 (osdu-node-2)
+# resource "aws_instance" "eks_node_2" {
+#   launch_template {
+#     id      = aws_launch_template.eks_nodes.id
+#     version = "$Latest"
+#   }
+
+#   subnet_id = data.aws_subnet.private_az2.id
+
+#   tags = {
+#     Name                                     = "osdu-node-2"  # Custom node name as requested
+#     "kubernetes.io/cluster/bsp-eks-cluster11" = "owned"        # EKS cluster tag (FIXED)
+#     Environment                              = "poc"
+#     Project                                  = "bsp"
+#     NodeNumber                               = "2"
+#     AZ                                       = "az2"
+#   }
+
+#   depends_on = [
+#     aws_eks_cluster.main,
+#     aws_eks_addon.vpc_cni,
+#   ]
+# }
+
+# # Worker Node 3 - AZ1 (osdu-node-3) - Distributed across AZs for HA
+# resource "aws_instance" "eks_node_3" {
+#   launch_template {
+#     id      = aws_launch_template.eks_nodes.id
+#     version = "$Latest"
+#   }
+
+#   subnet_id = data.aws_subnet.private_az1.id
+
+#   tags = {
+#     Name                                     = "osdu-node-3"  # Custom node name as requested
+#     "kubernetes.io/cluster/bsp-eks-cluster11" = "owned"        # EKS cluster tag (FIXED)
+#     Environment                              = "poc"
+#     Project                                  = "bsp"
+#     NodeNumber                               = "3"
+#     AZ                                       = "az1"
+#   }
+
+#   depends_on = [
+#     aws_eks_cluster.main,
+#     aws_eks_addon.vpc_cni,
+#   ]
+# }
+
+
+
+
+
+# Worker Node 1 - osdu-istio-keycloak (AZ1)
+resource "aws_instance" "eks_node_istio_keycloak" {
   launch_template {
     id      = aws_launch_template.eks_nodes.id
     version = "$Latest"
@@ -270,11 +346,12 @@ resource "aws_instance" "eks_node_1" {
   subnet_id = data.aws_subnet.private_az1.id
 
   tags = {
-    Name                                     = "osdu-node-1"  # Custom node name as requested
-    "kubernetes.io/cluster/bsp-eks-cluster11" = "owned"        # EKS cluster tag (FIXED)
+    Name                                     = "osdu-istio-keycloak"
+    "kubernetes.io/cluster/bsp-eks-cluster11" = "owned"
     Environment                              = "poc"
     Project                                  = "bsp"
-    NodeNumber                               = "1"
+    NodeRole                                 = "istio-keycloak"
+    Component                                = "infrastructure"
     AZ                                       = "az1"
   }
 
@@ -284,8 +361,8 @@ resource "aws_instance" "eks_node_1" {
   ]
 }
 
-# Worker Node 2 - AZ2 (osdu-node-2)
-resource "aws_instance" "eks_node_2" {
+# Worker Node 2 - osdu-backend (AZ2)
+resource "aws_instance" "eks_node_backend" {
   launch_template {
     id      = aws_launch_template.eks_nodes.id
     version = "$Latest"
@@ -294,11 +371,12 @@ resource "aws_instance" "eks_node_2" {
   subnet_id = data.aws_subnet.private_az2.id
 
   tags = {
-    Name                                     = "osdu-node-2"  # Custom node name as requested
-    "kubernetes.io/cluster/bsp-eks-cluster11" = "owned"        # EKS cluster tag (FIXED)
+    Name                                     = "osdu-backend"
+    "kubernetes.io/cluster/bsp-eks-cluster11" = "owned"
     Environment                              = "poc"
     Project                                  = "bsp"
-    NodeNumber                               = "2"
+    NodeRole                                 = "backend"
+    Component                                = "application"
     AZ                                       = "az2"
   }
 
@@ -308,8 +386,8 @@ resource "aws_instance" "eks_node_2" {
   ]
 }
 
-# Worker Node 3 - AZ1 (osdu-node-3) - Distributed across AZs for HA
-resource "aws_instance" "eks_node_3" {
+# Worker Node 3 - osdu-frontend (AZ1)
+resource "aws_instance" "eks_node_frontend" {
   launch_template {
     id      = aws_launch_template.eks_nodes.id
     version = "$Latest"
@@ -318,11 +396,12 @@ resource "aws_instance" "eks_node_3" {
   subnet_id = data.aws_subnet.private_az1.id
 
   tags = {
-    Name                                     = "osdu-node-3"  # Custom node name as requested
-    "kubernetes.io/cluster/bsp-eks-cluster11" = "owned"        # EKS cluster tag (FIXED)
+    Name                                     = "osdu-frontend"
+    "kubernetes.io/cluster/bsp-eks-cluster11" = "owned"
     Environment                              = "poc"
     Project                                  = "bsp"
-    NodeNumber                               = "3"
+    NodeRole                                 = "frontend"
+    Component                                = "presentation"
     AZ                                       = "az1"
   }
 
@@ -330,4 +409,142 @@ resource "aws_instance" "eks_node_3" {
     aws_eks_cluster.main,
     aws_eks_addon.vpc_cni,
   ]
+}
+
+# Apply labels to nodes after they join the cluster
+resource "null_resource" "label_osdu_istio_keycloak" {
+  provisioner "local-exec" {
+    command = <<-EOT
+      # Wait for node to be ready
+      echo "Waiting for osdu-istio-keycloak node to be ready..."
+      kubectl wait --for=condition=Ready node/osdu-istio-keycloak --timeout=300s
+      
+      # Apply labels
+      kubectl label nodes osdu-istio-keycloak node-role=osdu-istio-keycloak --overwrite
+      kubectl label nodes osdu-istio-keycloak component=infrastructure --overwrite
+      kubectl label nodes osdu-istio-keycloak workload=istio --overwrite
+      kubectl label nodes osdu-istio-keycloak workload=keycloak --overwrite
+      kubectl label nodes osdu-istio-keycloak environment=poc --overwrite
+      
+      echo "Labels applied to osdu-istio-keycloak node"
+    EOT
+  }
+
+  depends_on = [aws_instance.eks_node_istio_keycloak]
+
+  triggers = {
+    node_id = aws_instance.eks_node_istio_keycloak.id
+  }
+}
+
+resource "null_resource" "label_osdu_backend" {
+  provisioner "local-exec" {
+    command = <<-EOT
+      # Wait for node to be ready
+      echo "Waiting for osdu-backend node to be ready..."
+      kubectl wait --for=condition=Ready node/osdu-backend --timeout=300s
+      
+      # Apply labels
+      kubectl label nodes osdu-backend node-role=osdu-backend --overwrite
+      kubectl label nodes osdu-backend component=application --overwrite
+      kubectl label nodes osdu-backend workload=backend --overwrite
+      kubectl label nodes osdu-backend tier=backend --overwrite
+      kubectl label nodes osdu-backend environment=poc --overwrite
+      
+      echo "Labels applied to osdu-backend node"
+    EOT
+  }
+
+  depends_on = [aws_instance.eks_node_backend]
+
+  triggers = {
+    node_id = aws_instance.eks_node_backend.id
+  }
+}
+
+resource "null_resource" "label_osdu_frontend" {
+  provisioner "local-exec" {
+    command = <<-EOT
+      # Wait for node to be ready
+      echo "Waiting for osdu-frontend node to be ready..."
+      kubectl wait --for=condition=Ready node/osdu-frontend --timeout=300s
+      
+      # Apply labels
+      kubectl label nodes osdu-frontend node-role=osdu-frontend --overwrite
+      kubectl label nodes osdu-frontend component=presentation --overwrite
+      kubectl label nodes osdu-frontend workload=frontend --overwrite
+      kubectl label nodes osdu-frontend tier=frontend --overwrite
+      kubectl label nodes osdu-frontend environment=poc --overwrite
+      
+      echo "Labels applied to osdu-frontend node"
+    EOT
+  }
+
+  depends_on = [aws_instance.eks_node_frontend]
+
+  triggers = {
+    node_id = aws_instance.eks_node_frontend.id
+  }
+}
+
+# Output node information
+output "eks_nodes_info" {
+  description = "Information about the EKS nodes and their labels"
+  value = {
+    "osdu-istio-keycloak" = {
+      instance_id = aws_instance.eks_node_istio_keycloak.id
+      private_ip  = aws_instance.eks_node_istio_keycloak.private_ip
+      az          = aws_instance.eks_node_istio_keycloak.availability_zone
+      role        = "Infrastructure (Istio + Keycloak)"
+      labels = [
+        "node-role=osdu-istio-keycloak",
+        "component=infrastructure", 
+        "workload=istio",
+        "workload=keycloak",
+        "environment=poc"
+      ]
+    }
+    "osdu-backend" = {
+      instance_id = aws_instance.eks_node_backend.id
+      private_ip  = aws_instance.eks_node_backend.private_ip
+      az          = aws_instance.eks_node_backend.availability_zone
+      role        = "Application Backend"
+      labels = [
+        "node-role=osdu-backend",
+        "component=application",
+        "workload=backend",
+        "tier=backend", 
+        "environment=poc"
+      ]
+    }
+    "osdu-frontend" = {
+      instance_id = aws_instance.eks_node_frontend.id
+      private_ip  = aws_instance.eks_node_frontend.private_ip
+      az          = aws_instance.eks_node_frontend.availability_zone
+      role        = "Presentation Frontend"
+      labels = [
+        "node-role=osdu-frontend",
+        "component=presentation",
+        "workload=frontend",
+        "tier=frontend",
+        "environment=poc"
+      ]
+    }
+  }
+}
+
+# Output kubectl commands to verify labels
+output "verify_labels_commands" {
+  description = "Commands to verify node labels"
+  value = {
+    "check_all_nodes" = "kubectl get nodes --show-labels"
+    "check_istio_keycloak" = "kubectl describe node osdu-istio-keycloak"
+    "check_backend" = "kubectl describe node osdu-backend"
+    "check_frontend" = "kubectl describe node osdu-frontend"
+    "get_nodes_by_role" = {
+      "istio_keycloak" = "kubectl get nodes -l node-role=osdu-istio-keycloak"
+      "backend" = "kubectl get nodes -l node-role=osdu-backend"
+      "frontend" = "kubectl get nodes -l node-role=osdu-frontend"
+    }
+  }
 }
