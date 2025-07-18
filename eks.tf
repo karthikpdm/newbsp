@@ -67,6 +67,16 @@ data "aws_eks_addon_version" "coredns" {
   most_recent        = true
 }
 
+# EBS CSI Driver addon version
+data "aws_eks_addon_version" "ebs_csi" {
+  addon_name         = "aws-ebs-csi-driver"
+  kubernetes_version = aws_eks_cluster.main.version
+  most_recent        = true
+}
+
+
+################################################################################################################################################3
+
 # EKS Add-ons with dynamic versions
 resource "aws_eks_addon" "vpc_cni" {
   cluster_name      = aws_eks_cluster.main.name
@@ -101,6 +111,78 @@ resource "aws_eks_addon" "kube_proxy" {
 
 #   depends_on = [aws_eks_cluster.main]
 # }
+
+
+
+
+#########################################################################################################################################################
+
+# EBS CSI Driver Service Account IAM Role
+data "aws_iam_policy_document" "ebs_csi_assume_role_policy" {
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+    effect  = "Allow"
+
+    condition {
+      test     = "StringEquals"
+      variable = "${replace(aws_iam_openid_connect_provider.eks_cluster.url, "https://", "")}:sub"
+      values   = ["system:serviceaccount:kube-system:ebs-csi-controller-sa"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "${replace(aws_iam_openid_connect_provider.eks_cluster.url, "https://", "")}:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+
+    principals {
+      identifiers = [aws_iam_openid_connect_provider.eks_cluster.arn]
+      type        = "Federated"
+    }
+  }
+}
+
+resource "aws_iam_role" "ebs_csi_driver_role" {
+  name               = "bsp-eks-ebs-csi-driver-role"
+  assume_role_policy = data.aws_iam_policy_document.ebs_csi_assume_role_policy.json
+
+  tags = {
+    Name = "bsp-eks-ebs-csi-driver-role"
+    Environment = "poc"
+  }
+}
+
+# Attach the AWS managed policy for EBS CSI Driver
+resource "aws_iam_role_policy_attachment" "ebs_csi_driver_policy" {
+  policy_arn = "arn:aws:iam::aws:policy/service-role/Amazon_EBS_CSI_DriverPolicy"
+  role       = aws_iam_role.ebs_csi_driver_role.name
+
+}
+
+# EBS CSI Driver Add-on
+resource "aws_eks_addon" "ebs_csi_driver" {
+  cluster_name             = aws_eks_cluster.main.name
+  addon_name               = "aws-ebs-csi-driver"
+  addon_version            = data.aws_eks_addon_version.ebs_csi.version
+  service_account_role_arn = aws_iam_role.ebs_csi_driver_role.arn
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "OVERWRITE"
+
+  depends_on = [
+    aws_eks_cluster.main,
+    aws_iam_role_policy_attachment.ebs_csi_driver_policy,
+    aws_iam_openid_connect_provider.eks_cluster
+  ]
+
+  tags = {
+    Name = "bsp-eks-ebs-csi-driver"
+    Environment = "poc"
+  }
+}
+
+
+
+##########################################################################################################################################################
 
 # OIDC Identity Provider (only after cluster is fully ready)
 data "tls_certificate" "eks_cluster" {
