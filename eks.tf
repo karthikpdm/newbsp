@@ -193,15 +193,11 @@ resource "aws_eks_addon" "ebs_csi_driver" {
 ##########################################################################################################################################################
 
 # OIDC Identity Provider (only after cluster is fully ready)
-data "tls_certificate" "eks_cluster" {
-  url = aws_eks_cluster.main.identity[0].oidc[0].issuer
 
-  depends_on = [aws_eks_cluster.main]
-}
-
+# Static thumbprint approach (no internet needed)
 resource "aws_iam_openid_connect_provider" "eks_cluster" {
   client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = [data.tls_certificate.eks_cluster.certificates[0].sha1_fingerprint]
+  thumbprint_list = ["9e99a48a9960b14926bb7f3b02e22da2b0ab7280"]  # AWS standard thumbprint
   url             = aws_eks_cluster.main.identity[0].oidc[0].issuer
 
   depends_on = [aws_eks_cluster.main]
@@ -210,6 +206,23 @@ resource "aws_iam_openid_connect_provider" "eks_cluster" {
     Name = "bsp-eks-cluster1-oidc-provider"
   }
 }
+# data "tls_certificate" "eks_cluster" {
+#   url = aws_eks_cluster.main.identity[0].oidc[0].issuer
+
+#   depends_on = [aws_eks_cluster.main]
+# }
+
+# resource "aws_iam_openid_connect_provider" "eks_cluster" {
+#   client_id_list  = ["sts.amazonaws.com"]
+#   thumbprint_list = [data.tls_certificate.eks_cluster.certificates[0].sha1_fingerprint]
+#   url             = aws_eks_cluster.main.identity[0].oidc[0].issuer
+
+#   depends_on = [aws_eks_cluster.main]
+
+#   tags = {
+#     Name = "bsp-eks-cluster1-oidc-provider"
+#   }
+# }
 
 
 
