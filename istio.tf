@@ -237,21 +237,42 @@ resource "kubernetes_namespace" "default" {
   }
 
   # This will update the existing default namespace with labels
-  lifecycle {
-    ignore_changes = [
-      metadata[0].annotations,
-      metadata[0].creation_timestamp,
-      metadata[0].generation,
-      metadata[0].resource_version,
-      metadata[0].uid
-    ]
-  }
+  # lifecycle {
+  #   ignore_changes = [
+  #     metadata[0].annotations,
+  #     metadata[0].creation_timestamp,
+  #     metadata[0].generation,
+  #     metadata[0].resource_version,
+  #     metadata[0].uid
+  #   ]
+  # }
 
   depends_on = [
     aws_eks_cluster.main,
     data.aws_eks_cluster_auth.bsp_eks
   ]
 }
+
+
+# Alternative approach using kubernetes_labels (more reliable for existing namespaces)
+# resource "kubernetes_labels" "default_namespace_labels" {
+#   api_version = "v1"
+#   kind        = "Namespace"
+#   metadata {
+#     name = "default"
+#   }
+#   labels = {
+#     "istio-injection" = "enabled"
+#     "environment"     = "poc"
+#     "managed-by"      = "terraform"
+#   }
+
+#   depends_on = [
+#     aws_eks_cluster.main,
+#     data.aws_eks_cluster_auth.bsp_eks
+#   ]
+# }
+
 
 # resource "null_resource" "update_kubeconfig" {
 #   provisioner "local-exec" {
