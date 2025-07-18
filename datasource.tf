@@ -29,7 +29,7 @@ data "aws_subnet" "private_az2" {
 # Essential VPC Endpoints for Private EKS Cluster
 
 # Get current AWS region
-data "aws_region" "current" {}
+# data "aws_region" "current" {}
 
 # Security Group for VPC Endpoints
 resource "aws_security_group" "vpc_endpoint" {
