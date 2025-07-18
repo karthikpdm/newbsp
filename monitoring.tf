@@ -1,5 +1,5 @@
-# monitoring-fixed-policies.tf
-# AWS Managed Prometheus (AMP) and Managed Grafana - FIXED POLICIES
+# monitoring-fixed-no-istio.tf
+# Fixed monitoring configuration without Istio injection issues
 
 # 1. Create AWS Managed Prometheus (AMP) Workspace
 resource "aws_prometheus_workspace" "bsp_amp" {
@@ -13,7 +13,7 @@ resource "aws_prometheus_workspace" "bsp_amp" {
   }
 }
 
-# 2. IAM Role for Grafana with CUSTOM policy (since AWS managed policy doesn't exist)
+# 2. IAM Role for Grafana with custom policy
 resource "aws_iam_role" "grafana_role" {
   name = "bsp-grafana-service-role"
 
@@ -36,7 +36,7 @@ resource "aws_iam_role" "grafana_role" {
   }
 }
 
-# 3. Custom policy for Grafana (since AWS managed policy doesn't exist)
+# 3. Custom policy for Grafana
 resource "aws_iam_policy" "grafana_custom_policy" {
   name        = "bsp-grafana-custom-policy"
   description = "Custom policy for AWS Managed Grafana"
@@ -47,40 +47,26 @@ resource "aws_iam_policy" "grafana_custom_policy" {
       {
         Effect = "Allow"
         Action = [
-          # CloudWatch permissions
           "cloudwatch:DescribeAlarmsForMetric",
           "cloudwatch:DescribeAlarmHistory",
           "cloudwatch:DescribeAlarms",
           "cloudwatch:ListMetrics",
           "cloudwatch:GetMetricStatistics",
           "cloudwatch:GetMetricData",
-          # Logs permissions
           "logs:DescribeLogGroups",
           "logs:DescribeLogStreams",
           "logs:GetLogEvents",
           "logs:StartQuery",
           "logs:StopQuery",
           "logs:GetQueryResults",
-          "logs:GetLogRecord",
-          # EC2 permissions for resource discovery
           "ec2:DescribeTags",
           "ec2:DescribeInstances",
-          "ec2:DescribeRegions",
-          # Resource Groups permissions
-          "resource-groups:ListGroupResources",
-          "resource-groups:ListGroups",
-          "resource-groups:GetGroup",
-          "resource-groups:GetGroupQuery"
+          "ec2:DescribeRegions"
         ]
         Resource = "*"
       }
     ]
   })
-
-  tags = {
-    Name        = "bsp-grafana-custom-policy"
-    Environment = "poc"
-  }
 }
 
 resource "aws_iam_role_policy_attachment" "grafana_custom_policy" {
@@ -110,11 +96,6 @@ resource "aws_iam_policy" "grafana_prometheus_policy" {
       }
     ]
   })
-
-  tags = {
-    Name        = "bsp-grafana-prometheus-policy"
-    Environment = "poc"
-  }
 }
 
 resource "aws_iam_role_policy_attachment" "grafana_prometheus_policy" {
@@ -133,8 +114,6 @@ resource "aws_grafana_workspace" "bsp_grafana" {
   
   data_sources = ["PROMETHEUS"]
   
-  notification_destinations = ["SNS"]
-  
   tags = {
     Name        = "bsp-grafana-workspace"
     Environment = "poc"
@@ -148,16 +127,18 @@ resource "aws_grafana_workspace" "bsp_grafana" {
   ]
 }
 
-# 6. Create namespace for monitoring
-resource "kubernetes_namespace" "monitoring" {
+# 6. Update monitoring namespace to DISABLE Istio injection
+resource "kubernetes_labels" "monitoring_namespace_labels" {
+  api_version = "v1"
+  kind        = "Namespace"
   metadata {
     name = "monitoring"
-    labels = {
-      "istio-injection" = "enabled"
-      "environment"     = "poc"
-      "component"       = "monitoring"
-      "managed-by"      = "terraform"
-    }
+  }
+  labels = {
+    "istio-injection" = "disabled"  # DISABLE Istio injection for monitoring
+    "environment"     = "poc"
+    "component"       = "monitoring"
+    "managed-by"      = "terraform"
   }
 
   depends_on = [
@@ -188,11 +169,6 @@ resource "aws_iam_role" "prometheus_role" {
       }
     ]
   })
-
-  tags = {
-    Name        = "bsp-prometheus-service-role"
-    Environment = "poc"
-  }
 }
 
 # 8. Policy for Prometheus to write to AMP
@@ -216,11 +192,6 @@ resource "aws_iam_policy" "prometheus_policy" {
       }
     ]
   })
-
-  tags = {
-    Name        = "bsp-prometheus-amp-policy"
-    Environment = "poc"
-  }
 }
 
 resource "aws_iam_role_policy_attachment" "prometheus_policy" {
@@ -232,168 +203,161 @@ resource "aws_iam_role_policy_attachment" "prometheus_policy" {
 resource "kubernetes_service_account" "prometheus" {
   metadata {
     name      = "prometheus-server"
-    namespace = kubernetes_namespace.monitoring.metadata[0].name
+    namespace = "monitoring"
     annotations = {
       "eks.amazonaws.com/role-arn" = aws_iam_role.prometheus_role.arn
     }
   }
 
-  depends_on = [kubernetes_namespace.monitoring]
+  depends_on = [kubernetes_labels.monitoring_namespace_labels]
 }
 
-# 10. Deploy Prometheus using Helm with UNIQUE name
-resource "helm_release" "prometheus_stack" {
-  name       = "prometheus-stack"  # Changed name to avoid conflict
-  repository = "https://prometheus-community.github.io/helm-charts"
-  chart      = "kube-prometheus-stack"
-  namespace  = kubernetes_namespace.monitoring.metadata[0].name
-  version    = "56.6.2"
+# 10. Clean up existing failed releases first
+resource "null_resource" "cleanup_failed_releases" {
+  provisioner "local-exec" {
+    command = <<-EOT
+      # Remove failed prometheus releases
+      helm uninstall prometheus -n monitoring --ignore-not-found
+      helm uninstall prometheus-stack -n monitoring --ignore-not-found
+      
+      # Wait a bit for cleanup
+      sleep 10
+      
+      # Clean up stuck pods
+      kubectl delete pods --all -n monitoring --grace-period=0 --force --ignore-not-found
+      
+      # Wait for cleanup
+      sleep 5
+    EOT
+  }
 
-  # Custom values for AMP integration
+  depends_on = [kubernetes_labels.monitoring_namespace_labels]
+}
+
+# 11. Deploy Lightweight Prometheus without the problematic kube-prometheus-stack
+resource "helm_release" "prometheus_simple" {
+  name       = "prometheus-simple"
+  repository = "https://prometheus-community.github.io/helm-charts"
+  chart      = "prometheus"  # Simple prometheus chart
+  namespace  = "monitoring"
+  version    = "25.8.0"
+
   values = [
     yamlencode({
-      # Prometheus configuration
-      prometheus = {
-        prometheusSpec = {
-          serviceAccount = {
-            create = false
-            name   = kubernetes_service_account.prometheus.metadata[0].name
-          }
-          
-          # Remote write to AWS Managed Prometheus
-          remoteWrite = [
-            {
-              url = "${aws_prometheus_workspace.bsp_amp.prometheus_endpoint}api/v1/remote_write"
-              sigv4 = {
-                region = data.aws_region.current.name
-              }
-              writeRelabelConfigs = [
-                {
-                  sourceLabels = ["__name__"]
-                  regex        = "up|prometheus_.*"
-                  action       = "drop"
-                }
-              ]
-            }
-          ]
-          
-          # Storage configuration
-          retention = "7d"
-          
-          # Resource limits
-          resources = {
-            limits = {
-              cpu    = "1000m"
-              memory = "2Gi"
-            }
-            requests = {
-              cpu    = "500m"
-              memory = "1Gi"
-            }
-          }
-          
-          # Node selector
-          nodeSelector = {
-            "node-role" = "osdu-backend"
-          }
+      # Service account configuration
+      serviceAccounts = {
+        server = {
+          create = false
+          name   = kubernetes_service_account.prometheus.metadata[0].name
         }
       }
       
-      # Grafana disabled (using managed Grafana)
-      grafana = {
+      # Prometheus server configuration
+      server = {
+        # Remote write to AMP
+        configMapOverrides = {
+          "prometheus.yml" = <<-EOF
+            global:
+              scrape_interval: 15s
+              evaluation_interval: 15s
+            
+            remote_write:
+              - url: ${aws_prometheus_workspace.bsp_amp.prometheus_endpoint}api/v1/remote_write
+                sigv4:
+                  region: ${data.aws_region.current.name}
+            
+            scrape_configs:
+              - job_name: 'prometheus'
+                static_configs:
+                  - targets: ['localhost:9090']
+              
+              - job_name: 'kubernetes-nodes'
+                kubernetes_sd_configs:
+                  - role: node
+                relabel_configs:
+                  - source_labels: [__address__]
+                    regex: '(.*):10250'
+                    target_label: __address__
+                    replacement: '$1:9100'
+              
+              - job_name: 'kubernetes-pods'
+                kubernetes_sd_configs:
+                  - role: pod
+                relabel_configs:
+                  - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+                    action: keep
+                    regex: true
+          EOF
+        }
+        
+        # Resource limits
+        resources = {
+          limits = {
+            cpu    = "500m"
+            memory = "1Gi"
+          }
+          requests = {
+            cpu    = "250m"
+            memory = "512Mi"
+          }
+        }
+        
+        # Node selector
+        nodeSelector = {
+          "node-role" = "osdu-backend"
+        }
+        
+        # Storage
+        persistentVolume = {
+          enabled = true
+          size    = "8Gi"
+          storageClass = "gp2"
+        }
+        
+        # Retention
+        retention = "7d"
+      }
+      
+      # Disable other components to reduce complexity
+      alertmanager = {
         enabled = false
       }
       
-      # AlertManager configuration
-      alertmanager = {
-        alertmanagerSpec = {
-          resources = {
-            limits = {
-              cpu    = "200m"
-              memory = "256Mi"
-            }
-            requests = {
-              cpu    = "100m"
-              memory = "128Mi"
-            }
-          }
-          nodeSelector = {
-            "node-role" = "osdu-backend"
-          }
-        }
-      }
-      
-      # Node Exporter
       nodeExporter = {
         enabled = true
-        serviceMonitor = {
-          enabled = true
-        }
-      }
-      
-      # Kube State Metrics
-      kubeStateMetrics = {
-        enabled = true
-      }
-      
-      # Prometheus Operator
-      prometheusOperator = {
         resources = {
           limits = {
-            cpu    = "200m"
-            memory = "200Mi"
+            cpu    = "100m"
+            memory = "128Mi"
           }
           requests = {
-            cpu    = "100m"
-            memory = "100Mi"
+            cpu    = "50m"
+            memory = "64Mi"
           }
-        }
-        nodeSelector = {
-          "node-role" = "osdu-istio-keycloak"
         }
       }
       
-      # Enable comprehensive monitoring
-      defaultRules = {
-        create = true
-        rules = {
-          alertmanager = true
-          etcd = true
-          general = true
-          k8s = true
-          kubeApiserver = true
-          kubeApiserverAvailability = true
-          kubeApiserverSlos = true
-          kubelet = true
-          kubeProxy = true
-          kubePrometheusGeneral = true
-          kubePrometheusNodeRecording = true
-          kubernetesApps = true
-          kubernetesResources = true
-          kubernetesStorage = true
-          kubernetesSystem = true
-          node = true
-          nodeExporterAlerting = true
-          nodeExporterRecording = true
-          prometheus = true
-          prometheusOperator = true
-        }
+      pushgateway = {
+        enabled = false
+      }
+      
+      kubeStateMetrics = {
+        enabled = false  # Disable for now
       }
     })
   ]
 
-  wait          = true
-  wait_for_jobs = true
-  timeout       = 600
+  wait    = true
+  timeout = 300
 
   depends_on = [
-    kubernetes_namespace.monitoring,
+    null_resource.cleanup_failed_releases,
     kubernetes_service_account.prometheus,
     aws_iam_role_policy_attachment.prometheus_policy
   ]
 }
 
-# 11. Outputs
+# 12. Outputs
 output "monitoring_info" {
   description = "Monitoring infrastructure information"
   value = {
@@ -407,44 +371,25 @@ output "monitoring_info" {
       arn      = aws_grafana_workspace.bsp_grafana.arn
       endpoint = aws_grafana_workspace.bsp_grafana.endpoint
     }
-    prometheus_namespace = kubernetes_namespace.monitoring.metadata[0].name
-    prometheus_service_account = "${kubernetes_namespace.monitoring.metadata[0].name}/${kubernetes_service_account.prometheus.metadata[0].name}"
-  }
-}
-
-output "grafana_access_instructions" {
-  description = "Instructions to access Grafana"
-  value = {
-    grafana_url = aws_grafana_workspace.bsp_grafana.endpoint
-    data_source_url = aws_prometheus_workspace.bsp_amp.prometheus_endpoint
-    authentication = "Use AWS SSO to log in to Grafana"
-    setup_steps = [
-      "1. Go to AWS Console → Amazon Managed Grafana",
-      "2. Click on workspace: bsp-grafana-poc", 
-      "3. Click 'Open Grafana workspace'",
-      "4. Log in using AWS SSO",
-      "5. Add data source: Configuration → Data sources → Add data source → Prometheus",
-      "6. Use URL from terraform output: prometheus_endpoint"
-    ]
   }
 }
 
 output "monitoring_verification_commands" {
   description = "Commands to verify monitoring setup"
   value = {
-    check_prometheus_pods = "kubectl get pods -n ${kubernetes_namespace.monitoring.metadata[0].name}"
-    check_prometheus_service = "kubectl get svc -n ${kubernetes_namespace.monitoring.metadata[0].name}"
-    port_forward_prometheus = "kubectl port-forward -n ${kubernetes_namespace.monitoring.metadata[0].name} svc/prometheus-stack-kube-prom-prometheus 9090:9090"
-    check_servicemonitors = "kubectl get servicemonitors -n ${kubernetes_namespace.monitoring.metadata[0].name}"
-    check_crds = "kubectl get crd | grep monitoring"
+    check_prometheus_pods = "kubectl get pods -n monitoring"
+    check_prometheus_service = "kubectl get svc -n monitoring"
+    port_forward_prometheus = "kubectl port-forward -n monitoring svc/prometheus-simple-server 9090:80"
+    check_helm_releases = "helm list -n monitoring"
+    check_namespace_labels = "kubectl get namespace monitoring --show-labels"
   }
 }
 
-# 12. Clean up any existing conflicting helm releases (if needed)
 output "cleanup_commands" {
-  description = "Commands to clean up conflicting resources if needed"
+  description = "Manual cleanup commands if needed"
   value = {
-    remove_existing_helm = "helm uninstall prometheus -n monitoring --ignore-not-found"
-    check_helm_releases = "helm list -n monitoring"
+    remove_failed_releases = "helm uninstall prometheus prometheus-stack -n monitoring --ignore-not-found"
+    restart_stuck_pods = "kubectl delete pods --all -n monitoring --grace-period=0 --force"
+    check_istio_injection = "kubectl get namespace monitoring --show-labels | grep istio-injection"
   }
 }
