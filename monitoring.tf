@@ -1,6 +1,17 @@
-# monitoring.tf
-# AWS Managed Prometheus (AMP) and Managed Grafana with Helm Prometheus
+# monitoring-fixed.tf
+# AWS Managed Prometheus (AMP) and Managed Grafana with Helm Prometheus - FIXED VERSION
 
+# 1. Create AWS Managed Prometheus (AMP) Workspace
+resource "aws_prometheus_workspace" "bsp_amp" {
+  alias = "bsp-prometheus-poc"
+  
+  tags = {
+    Name        = "bsp-prometheus-workspace"
+    Environment = "poc"
+    Project     = "bsp"
+    ManagedBy   = "terraform"
+  }
+}
 
 # 2. Create AWS Managed Grafana Workspace
 resource "aws_grafana_workspace" "bsp_grafana" {
@@ -13,10 +24,7 @@ resource "aws_grafana_workspace" "bsp_grafana" {
   
   data_sources = ["PROMETHEUS"]
   
-  # Optional: Enable additional data sources
-  # data_sources = ["PROMETHEUS", "CLOUDWATCH"]
-  
-  notification_destinations = ["SNS"]  # Optional
+  notification_destinations = ["SNS"]
   
   tags = {
     Name        = "bsp-grafana-workspace"
@@ -91,9 +99,6 @@ resource "aws_iam_role_policy_attachment" "grafana_prometheus_policy" {
   role       = aws_iam_role.grafana_role.name
 }
 
-
-
-
 # 6. Create namespace for monitoring
 resource "kubernetes_namespace" "monitoring" {
   metadata {
@@ -111,25 +116,6 @@ resource "kubernetes_namespace" "monitoring" {
     data.aws_eks_cluster_auth.bsp_eks
   ]
 }
-
-
-
-
-##########################################################################################################
-
-
-# 1. Create AWS Managed Prometheus (AMP) Workspace
-resource "aws_prometheus_workspace" "bsp_amp" {
-  alias = "bsp-prometheus-poc"
-  
-  tags = {
-    Name        = "bsp-prometheus-workspace"
-    Environment = "poc"
-    Project     = "bsp"
-    ManagedBy   = "terraform"
-  }
-}
-
 
 # 7. IAM Role for Prometheus Service Account (IRSA)
 resource "aws_iam_role" "prometheus_role" {
@@ -212,7 +198,7 @@ resource "helm_release" "prometheus" {
   repository = "https://prometheus-community.github.io/helm-charts"
   chart      = "kube-prometheus-stack"
   namespace  = kubernetes_namespace.monitoring.metadata[0].name
-  version    = "56.6.2"  # Use latest stable version
+  version    = "56.6.2"
 
   # Custom values for AMP integration
   values = [
@@ -242,7 +228,7 @@ resource "helm_release" "prometheus" {
             }
           ]
           
-          # Storage configuration - reduced for cost optimization
+          # Storage configuration
           retention = "7d"
           
           # Resource limits
@@ -259,14 +245,14 @@ resource "helm_release" "prometheus" {
           
           # Node selector for monitoring node
           nodeSelector = {
-            "node-role" = "osdu-backend"  # Deploy on backend node
+            "node-role" = "osdu-backend"
           }
         }
       }
       
-      # Grafana configuration (optional - can be disabled since using managed Grafana)
+      # Grafana configuration (disabled since using managed Grafana)
       grafana = {
-        enabled = false  # Disable since using AWS Managed Grafana
+        enabled = false
       }
       
       # AlertManager configuration
@@ -311,11 +297,16 @@ resource "helm_release" "prometheus" {
           }
         }
         nodeSelector = {
-          "node-role" = "osdu-istio-keycloak"  # Deploy on infrastructure node
+          "node-role" = "osdu-istio-keycloak"
         }
       }
     })
   ]
+
+  # Wait for CRDs to be ready
+  wait          = true
+  wait_for_jobs = true
+  timeout       = 600
 
   depends_on = [
     kubernetes_namespace.monitoring,
@@ -324,30 +315,14 @@ resource "helm_release" "prometheus" {
   ]
 }
 
-# 11. Deploy additional monitoring components
-resource "helm_release" "prometheus_adapter" {
-  name       = "prometheus-adapter"
-  repository = "https://prometheus-community.github.io/helm-charts"
-  chart      = "prometheus-adapter"
-  namespace  = kubernetes_namespace.monitoring.metadata[0].name
-  version    = "4.9.0"
-
-  values = [
-    yamlencode({
-      prometheus = {
-        url = "http://prometheus-kube-prometheus-prometheus.${kubernetes_namespace.monitoring.metadata[0].name}.svc.cluster.local"
-        port = 9090
-      }
-      nodeSelector = {
-        "node-role" = "osdu-istio-keycloak"
-      }
-    })
-  ]
-
+# 11. Wait for CRDs to be installed before creating ServiceMonitor
+resource "time_sleep" "wait_for_crds" {
   depends_on = [helm_release.prometheus]
+  
+  create_duration = "60s"
 }
 
-# 12. Create ServiceMonitor for EKS nodes
+# 12. Create ServiceMonitor AFTER CRDs are installed
 resource "kubernetes_manifest" "eks_node_servicemonitor" {
   manifest = {
     apiVersion = "monitoring.coreos.com/v1"
@@ -374,10 +349,49 @@ resource "kubernetes_manifest" "eks_node_servicemonitor" {
     }
   }
 
-  depends_on = [helm_release.prometheus]
+  depends_on = [
+    helm_release.prometheus,
+    time_sleep.wait_for_crds
+  ]
 }
 
-# 13. Outputs
+# 13. Deploy Prometheus Adapter (optional - for HPA metrics)
+resource "helm_release" "prometheus_adapter" {
+  name       = "prometheus-adapter"
+  repository = "https://prometheus-community.github.io/helm-charts"
+  chart      = "prometheus-adapter"
+  namespace  = kubernetes_namespace.monitoring.metadata[0].name
+  version    = "4.9.0"
+
+  values = [
+    yamlencode({
+      prometheus = {
+        url = "http://prometheus-kube-prometheus-prometheus.${kubernetes_namespace.monitoring.metadata[0].name}.svc.cluster.local"
+        port = 9090
+      }
+      nodeSelector = {
+        "node-role" = "osdu-backend"
+      }
+      resources = {
+        limits = {
+          cpu    = "250m"
+          memory = "180Mi"
+        }
+        requests = {
+          cpu    = "102m"
+          memory = "180Mi"
+        }
+      }
+    })
+  ]
+
+  depends_on = [
+    helm_release.prometheus,
+    time_sleep.wait_for_crds
+  ]
+}
+
+# 14. Outputs
 output "monitoring_info" {
   description = "Monitoring infrastructure information"
   value = {
@@ -413,5 +427,6 @@ output "monitoring_verification_commands" {
     check_prometheus_service = "kubectl get svc -n ${kubernetes_namespace.monitoring.metadata[0].name}"
     port_forward_prometheus = "kubectl port-forward -n ${kubernetes_namespace.monitoring.metadata[0].name} svc/prometheus-kube-prometheus-prometheus 9090:9090"
     check_servicemonitors = "kubectl get servicemonitors -n ${kubernetes_namespace.monitoring.metadata[0].name}"
+    check_crds = "kubectl get crd | grep monitoring"
   }
 }
