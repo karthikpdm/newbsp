@@ -322,38 +322,38 @@ resource "time_sleep" "wait_for_crds" {
   create_duration = "60s"
 }
 
-# 12. Create ServiceMonitor AFTER CRDs are installed
-resource "kubernetes_manifest" "eks_node_servicemonitor" {
-  manifest = {
-    apiVersion = "monitoring.coreos.com/v1"
-    kind       = "ServiceMonitor"
-    metadata = {
-      name      = "eks-nodes"
-      namespace = kubernetes_namespace.monitoring.metadata[0].name
-      labels = {
-        app = "node-exporter"
-      }
-    }
-    spec = {
-      selector = {
-        matchLabels = {
-          "app.kubernetes.io/name" = "node-exporter"
-        }
-      }
-      endpoints = [
-        {
-          port = "http-metrics"
-          path = "/metrics"
-        }
-      ]
-    }
-  }
+# # 12. Create ServiceMonitor AFTER CRDs are installed
+# resource "kubernetes_manifest" "eks_node_servicemonitor" {
+#   manifest = {
+#     apiVersion = "monitoring.coreos.com/v1"
+#     kind       = "ServiceMonitor"
+#     metadata = {
+#       name      = "eks-nodes"
+#       namespace = kubernetes_namespace.monitoring.metadata[0].name
+#       labels = {
+#         app = "node-exporter"
+#       }
+#     }
+#     spec = {
+#       selector = {
+#         matchLabels = {
+#           "app.kubernetes.io/name" = "node-exporter"
+#         }
+#       }
+#       endpoints = [
+#         {
+#           port = "http-metrics"
+#           path = "/metrics"
+#         }
+#       ]
+#     }
+#   }
 
-  depends_on = [
-    helm_release.prometheus,
-    time_sleep.wait_for_crds
-  ]
-}
+#   depends_on = [
+#     helm_release.prometheus,
+#     time_sleep.wait_for_crds
+#   ]
+# }
 
 # 13. Deploy Prometheus Adapter (optional - for HPA metrics)
 resource "helm_release" "prometheus_adapter" {
