@@ -31,6 +31,12 @@ data "aws_subnet" "private_az2" {
 # Get current AWS region
 # data "aws_region" "current" {}
 
+## vpc-endpoints.tf
+# Essential VPC Endpoints for Private EKS Cluster
+
+# Get current AWS region
+# data "aws_region" "current" {}
+
 # Security Group for VPC Endpoints
 resource "aws_security_group" "vpc_endpoint" {
   name        = "bsp-vpc-endpoint-sg"
@@ -92,11 +98,18 @@ resource "aws_vpc_endpoint" "ecr_dkr" {
 }
 
 # 3. S3 VPC Endpoint (REQUIRED - Gateway endpoint for ECR image layers, FREE)
-# Get the route table for private subnets
-data "aws_route_table" "private" {
+# Get both private route tables
+data "aws_route_table" "private_az1" {
   filter {
     name   = "tag:Name"
-    values = ["bsp-private-route-table-poc"]  # Update this to match your route table name
+    values = ["bsp-private-route-table-az1-poc"]
+  }
+}
+
+data "aws_route_table" "private_az2" {
+  filter {
+    name   = "tag:Name"
+    values = ["bsp-private-route-table-az2-poc"]
   }
 }
 
@@ -104,7 +117,10 @@ resource "aws_vpc_endpoint" "s3" {
   vpc_id            = data.aws_vpc.existing.id
   service_name      = "com.amazonaws.${data.aws_region.current.name}.s3"
   vpc_endpoint_type = "Gateway"
-  route_table_ids   = [data.aws_route_table.private.id]
+  route_table_ids   = [
+    data.aws_route_table.private_az1.id,
+    data.aws_route_table.private_az2.id
+  ]
   
   tags = {
     Name = "bsp-s3-vpc-endpoint"
