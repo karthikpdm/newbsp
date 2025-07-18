@@ -1,5 +1,5 @@
-# monitoring-fixed.tf
-# AWS Managed Prometheus (AMP) and Managed Grafana with Helm Prometheus - FIXED VERSION
+# monitoring-fixed-policies.tf
+# AWS Managed Prometheus (AMP) and Managed Grafana - FIXED POLICIES
 
 # 1. Create AWS Managed Prometheus (AMP) Workspace
 resource "aws_prometheus_workspace" "bsp_amp" {
@@ -13,30 +13,7 @@ resource "aws_prometheus_workspace" "bsp_amp" {
   }
 }
 
-# 2. Create AWS Managed Grafana Workspace
-resource "aws_grafana_workspace" "bsp_grafana" {
-  account_access_type      = "CURRENT_ACCOUNT"
-  authentication_providers = ["AWS_SSO"]
-  permission_type          = "SERVICE_MANAGED"
-  role_arn                 = aws_iam_role.grafana_role.arn
-  name                     = "bsp-grafana-poc"
-  description              = "BSP Grafana workspace for monitoring EKS cluster"
-  
-  data_sources = ["PROMETHEUS"]
-  
-  notification_destinations = ["SNS"]
-  
-  tags = {
-    Name        = "bsp-grafana-workspace"
-    Environment = "poc"
-    Project     = "bsp"
-    ManagedBy   = "terraform"
-  }
-
-  depends_on = [aws_iam_role_policy_attachment.grafana_policy]
-}
-
-# 3. IAM Role for Grafana
+# 2. IAM Role for Grafana with CUSTOM policy (since AWS managed policy doesn't exist)
 resource "aws_iam_role" "grafana_role" {
   name = "bsp-grafana-service-role"
 
@@ -59,13 +36,59 @@ resource "aws_iam_role" "grafana_role" {
   }
 }
 
-# 4. Attach AWS managed policy for Grafana
-resource "aws_iam_role_policy_attachment" "grafana_policy" {
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonGrafanaServiceRole"
+# 3. Custom policy for Grafana (since AWS managed policy doesn't exist)
+resource "aws_iam_policy" "grafana_custom_policy" {
+  name        = "bsp-grafana-custom-policy"
+  description = "Custom policy for AWS Managed Grafana"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          # CloudWatch permissions
+          "cloudwatch:DescribeAlarmsForMetric",
+          "cloudwatch:DescribeAlarmHistory",
+          "cloudwatch:DescribeAlarms",
+          "cloudwatch:ListMetrics",
+          "cloudwatch:GetMetricStatistics",
+          "cloudwatch:GetMetricData",
+          # Logs permissions
+          "logs:DescribeLogGroups",
+          "logs:DescribeLogStreams",
+          "logs:GetLogEvents",
+          "logs:StartQuery",
+          "logs:StopQuery",
+          "logs:GetQueryResults",
+          "logs:GetLogRecord",
+          # EC2 permissions for resource discovery
+          "ec2:DescribeTags",
+          "ec2:DescribeInstances",
+          "ec2:DescribeRegions",
+          # Resource Groups permissions
+          "resource-groups:ListGroupResources",
+          "resource-groups:ListGroups",
+          "resource-groups:GetGroup",
+          "resource-groups:GetGroupQuery"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = {
+    Name        = "bsp-grafana-custom-policy"
+    Environment = "poc"
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "grafana_custom_policy" {
+  policy_arn = aws_iam_policy.grafana_custom_policy.arn
   role       = aws_iam_role.grafana_role.name
 }
 
-# 5. Custom policy for Prometheus access
+# 4. Policy for Prometheus access
 resource "aws_iam_policy" "grafana_prometheus_policy" {
   name        = "bsp-grafana-prometheus-policy"
   description = "Policy for Grafana to access Prometheus workspace"
@@ -97,6 +120,32 @@ resource "aws_iam_policy" "grafana_prometheus_policy" {
 resource "aws_iam_role_policy_attachment" "grafana_prometheus_policy" {
   policy_arn = aws_iam_policy.grafana_prometheus_policy.arn
   role       = aws_iam_role.grafana_role.name
+}
+
+# 5. Create AWS Managed Grafana Workspace
+resource "aws_grafana_workspace" "bsp_grafana" {
+  account_access_type      = "CURRENT_ACCOUNT"
+  authentication_providers = ["AWS_SSO"]
+  permission_type          = "SERVICE_MANAGED"
+  role_arn                 = aws_iam_role.grafana_role.arn
+  name                     = "bsp-grafana-poc"
+  description              = "BSP Grafana workspace for monitoring EKS cluster"
+  
+  data_sources = ["PROMETHEUS"]
+  
+  notification_destinations = ["SNS"]
+  
+  tags = {
+    Name        = "bsp-grafana-workspace"
+    Environment = "poc"
+    Project     = "bsp"
+    ManagedBy   = "terraform"
+  }
+
+  depends_on = [
+    aws_iam_role_policy_attachment.grafana_custom_policy,
+    aws_iam_role_policy_attachment.grafana_prometheus_policy
+  ]
 }
 
 # 6. Create namespace for monitoring
@@ -192,9 +241,9 @@ resource "kubernetes_service_account" "prometheus" {
   depends_on = [kubernetes_namespace.monitoring]
 }
 
-# 10. Deploy Prometheus using Helm
-resource "helm_release" "prometheus" {
-  name       = "prometheus"
+# 10. Deploy Prometheus using Helm with UNIQUE name
+resource "helm_release" "prometheus_stack" {
+  name       = "prometheus-stack"  # Changed name to avoid conflict
   repository = "https://prometheus-community.github.io/helm-charts"
   chart      = "kube-prometheus-stack"
   namespace  = kubernetes_namespace.monitoring.metadata[0].name
@@ -243,14 +292,14 @@ resource "helm_release" "prometheus" {
             }
           }
           
-          # Node selector for monitoring node
+          # Node selector
           nodeSelector = {
             "node-role" = "osdu-backend"
           }
         }
       }
       
-      # Grafana configuration (disabled since using managed Grafana)
+      # Grafana disabled (using managed Grafana)
       grafana = {
         enabled = false
       }
@@ -274,17 +323,20 @@ resource "helm_release" "prometheus" {
         }
       }
       
-      # Node Exporter configuration
+      # Node Exporter
       nodeExporter = {
         enabled = true
+        serviceMonitor = {
+          enabled = true
+        }
       }
       
-      # Kube State Metrics configuration
+      # Kube State Metrics
       kubeStateMetrics = {
         enabled = true
       }
       
-      # Prometheus Operator configuration
+      # Prometheus Operator
       prometheusOperator = {
         resources = {
           limits = {
@@ -300,10 +352,36 @@ resource "helm_release" "prometheus" {
           "node-role" = "osdu-istio-keycloak"
         }
       }
+      
+      # Enable comprehensive monitoring
+      defaultRules = {
+        create = true
+        rules = {
+          alertmanager = true
+          etcd = true
+          general = true
+          k8s = true
+          kubeApiserver = true
+          kubeApiserverAvailability = true
+          kubeApiserverSlos = true
+          kubelet = true
+          kubeProxy = true
+          kubePrometheusGeneral = true
+          kubePrometheusNodeRecording = true
+          kubernetesApps = true
+          kubernetesResources = true
+          kubernetesStorage = true
+          kubernetesSystem = true
+          node = true
+          nodeExporterAlerting = true
+          nodeExporterRecording = true
+          prometheus = true
+          prometheusOperator = true
+        }
+      }
     })
   ]
 
-  # Wait for CRDs to be ready
   wait          = true
   wait_for_jobs = true
   timeout       = 600
@@ -315,83 +393,7 @@ resource "helm_release" "prometheus" {
   ]
 }
 
-# 11. Wait for CRDs to be installed before creating ServiceMonitor
-resource "time_sleep" "wait_for_crds" {
-  depends_on = [helm_release.prometheus]
-  
-  create_duration = "60s"
-}
-
-# # 12. Create ServiceMonitor AFTER CRDs are installed
-# resource "kubernetes_manifest" "eks_node_servicemonitor" {
-#   manifest = {
-#     apiVersion = "monitoring.coreos.com/v1"
-#     kind       = "ServiceMonitor"
-#     metadata = {
-#       name      = "eks-nodes"
-#       namespace = kubernetes_namespace.monitoring.metadata[0].name
-#       labels = {
-#         app = "node-exporter"
-#       }
-#     }
-#     spec = {
-#       selector = {
-#         matchLabels = {
-#           "app.kubernetes.io/name" = "node-exporter"
-#         }
-#       }
-#       endpoints = [
-#         {
-#           port = "http-metrics"
-#           path = "/metrics"
-#         }
-#       ]
-#     }
-#   }
-
-#   depends_on = [
-#     helm_release.prometheus,
-#     time_sleep.wait_for_crds
-#   ]
-# }
-
-# 13. Deploy Prometheus Adapter (optional - for HPA metrics)
-resource "helm_release" "prometheus_adapter" {
-  name       = "prometheus-adapter"
-  repository = "https://prometheus-community.github.io/helm-charts"
-  chart      = "prometheus-adapter"
-  namespace  = kubernetes_namespace.monitoring.metadata[0].name
-  version    = "4.9.0"
-
-  values = [
-    yamlencode({
-      prometheus = {
-        url = "http://prometheus-kube-prometheus-prometheus.${kubernetes_namespace.monitoring.metadata[0].name}.svc.cluster.local"
-        port = 9090
-      }
-      nodeSelector = {
-        "node-role" = "osdu-backend"
-      }
-      resources = {
-        limits = {
-          cpu    = "250m"
-          memory = "180Mi"
-        }
-        requests = {
-          cpu    = "102m"
-          memory = "180Mi"
-        }
-      }
-    })
-  ]
-
-  depends_on = [
-    helm_release.prometheus,
-    time_sleep.wait_for_crds
-  ]
-}
-
-# 14. Outputs
+# 11. Outputs
 output "monitoring_info" {
   description = "Monitoring infrastructure information"
   value = {
@@ -416,7 +418,14 @@ output "grafana_access_instructions" {
     grafana_url = aws_grafana_workspace.bsp_grafana.endpoint
     data_source_url = aws_prometheus_workspace.bsp_amp.prometheus_endpoint
     authentication = "Use AWS SSO to log in to Grafana"
-    prometheus_data_source_config = "Add Prometheus data source with URL: ${aws_prometheus_workspace.bsp_amp.prometheus_endpoint}"
+    setup_steps = [
+      "1. Go to AWS Console → Amazon Managed Grafana",
+      "2. Click on workspace: bsp-grafana-poc", 
+      "3. Click 'Open Grafana workspace'",
+      "4. Log in using AWS SSO",
+      "5. Add data source: Configuration → Data sources → Add data source → Prometheus",
+      "6. Use URL from terraform output: prometheus_endpoint"
+    ]
   }
 }
 
@@ -425,8 +434,17 @@ output "monitoring_verification_commands" {
   value = {
     check_prometheus_pods = "kubectl get pods -n ${kubernetes_namespace.monitoring.metadata[0].name}"
     check_prometheus_service = "kubectl get svc -n ${kubernetes_namespace.monitoring.metadata[0].name}"
-    port_forward_prometheus = "kubectl port-forward -n ${kubernetes_namespace.monitoring.metadata[0].name} svc/prometheus-kube-prometheus-prometheus 9090:9090"
+    port_forward_prometheus = "kubectl port-forward -n ${kubernetes_namespace.monitoring.metadata[0].name} svc/prometheus-stack-kube-prom-prometheus 9090:9090"
     check_servicemonitors = "kubectl get servicemonitors -n ${kubernetes_namespace.monitoring.metadata[0].name}"
     check_crds = "kubectl get crd | grep monitoring"
+  }
+}
+
+# 12. Clean up any existing conflicting helm releases (if needed)
+output "cleanup_commands" {
+  description = "Commands to clean up conflicting resources if needed"
+  value = {
+    remove_existing_helm = "helm uninstall prometheus -n monitoring --ignore-not-found"
+    check_helm_releases = "helm list -n monitoring"
   }
 }
