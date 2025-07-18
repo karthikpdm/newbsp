@@ -47,8 +47,9 @@ provider "kubernetes" {
 }
 
 # Helm provider configuration - FIXED SYNTAX
+# ✅ CORRECT - Use a block
 provider "helm" {
-  kubernetes = {  # Changed from 'kubernetes {' to 'kubernetes = {'
+  kubernetes {
     host                   = aws_eks_cluster.main.endpoint
     cluster_ca_certificate = base64decode(aws_eks_cluster.main.certificate_authority[0].data)
     token                  = data.aws_eks_cluster_auth.bsp_eks.token
