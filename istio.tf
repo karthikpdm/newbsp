@@ -225,53 +225,53 @@ resource "kubernetes_namespace" "istio-gateway-namespace" {
 # terraform-no-null.tf
 # Terraform code to achieve the same without null resources
 
-# 1. Label default namespace for Istio sidecar injection using kubernetes provider
-resource "kubernetes_namespace" "default" {
-  metadata {
-    name = "default"
-    labels = {
-      "istio-injection" = "enabled"
-      "environment"     = "poc"
-      "managed-by"      = "terraform"
-    }
-  }
-
-  # This will update the existing default namespace with labels
-  # lifecycle {
-  #   ignore_changes = [
-  #     metadata[0].annotations,
-  #     metadata[0].creation_timestamp,
-  #     metadata[0].generation,
-  #     metadata[0].resource_version,
-  #     metadata[0].uid
-  #   ]
-  # }
-
-  depends_on = [
-    aws_eks_cluster.main,
-    data.aws_eks_cluster_auth.bsp_eks
-  ]
-}
-
-
-# Alternative approach using kubernetes_labels (more reliable for existing namespaces)
-# resource "kubernetes_labels" "default_namespace_labels" {
-#   api_version = "v1"
-#   kind        = "Namespace"
+# # 1. Label default namespace for Istio sidecar injection using kubernetes provider
+# resource "kubernetes_namespace" "default" {
 #   metadata {
 #     name = "default"
+#     labels = {
+#       "istio-injection" = "enabled"
+#       "environment"     = "poc"
+#       "managed-by"      = "terraform"
+#     }
 #   }
-#   labels = {
-#     "istio-injection" = "enabled"
-#     "environment"     = "poc"
-#     "managed-by"      = "terraform"
-#   }
+
+#   # This will update the existing default namespace with labels
+#   # lifecycle {
+#   #   ignore_changes = [
+#   #     metadata[0].annotations,
+#   #     metadata[0].creation_timestamp,
+#   #     metadata[0].generation,
+#   #     metadata[0].resource_version,
+#   #     metadata[0].uid
+#   #   ]
+#   # }
 
 #   depends_on = [
 #     aws_eks_cluster.main,
 #     data.aws_eks_cluster_auth.bsp_eks
 #   ]
 # }
+
+
+# Alternative approach using kubernetes_labels (more reliable for existing namespaces)
+resource "kubernetes_labels" "default_namespace_labels" {
+  api_version = "v1"
+  kind        = "Namespace"
+  metadata {
+    name = "default"
+  }
+  labels = {
+    "istio-injection" = "enabled"
+    "environment"     = "poc"
+    "managed-by"      = "terraform"
+  }
+
+  depends_on = [
+    aws_eks_cluster.main,
+    data.aws_eks_cluster_auth.bsp_eks
+  ]
+}
 
 
 # resource "null_resource" "update_kubeconfig" {
