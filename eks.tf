@@ -33,6 +33,14 @@ resource "aws_eks_cluster" "main" {
     Name = "bsp-eks-cluster1"
     Environment = "poc"
   }
+
+  lifecycle {
+    ignore_changes = [
+      vpc_config[0].public_access_cidrs,
+      vpc_config[0].endpoint_private_access,
+      vpc_config[0].endpoint_public_access,
+    ]
+  }
 }
 
 # CloudWatch Log Group for EKS cluster logging
