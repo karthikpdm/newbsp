@@ -46,19 +46,43 @@ data "aws_eks_cluster_auth" "bsp_eks" {
 }
 
 
-# Kubernetes provider configuration
+# # Kubernetes provider configuration
+# provider "kubernetes" {
+#   host                   = aws_eks_cluster.main.endpoint
+#   cluster_ca_certificate = base64decode(aws_eks_cluster.main.certificate_authority[0].data)  # Fixed typo
+#   token                  = data.aws_eks_cluster_auth.bsp_eks.token
+# }
+
+# # Helm provider configuration - FIXED SYNTAX
+# # ✅ CORRECT - Use a block
+# provider "helm" {
+#   kubernetes {
+#     host                   = aws_eks_cluster.main.endpoint
+#     cluster_ca_certificate = base64decode(aws_eks_cluster.main.certificate_authority[0].data)
+#     token                  = data.aws_eks_cluster_auth.bsp_eks.token
+#   }
+# }
+
 provider "kubernetes" {
-  host                   = aws_eks_cluster.main.endpoint
-  cluster_ca_certificate = base64decode(aws_eks_cluster.main.certificate_authority[0].data)  # Fixed typo
-  token                  = data.aws_eks_cluster_auth.bsp_eks.token
+  host                   = data.aws_eks_cluster.bsp_eks.endpoint
+  cluster_ca_certificate = base64decode(data.aws_eks_cluster.bsp_eks.certificate_authority[0].data)
+  
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "aws"
+    args        = ["eks", "get-token", "--cluster-name", aws_eks_cluster.main.name, "--region", "us-east-1"]
+  }
 }
 
-# Helm provider configuration - FIXED SYNTAX
-# ✅ CORRECT - Use a block
 provider "helm" {
   kubernetes {
-    host                   = aws_eks_cluster.main.endpoint
-    cluster_ca_certificate = base64decode(aws_eks_cluster.main.certificate_authority[0].data)
-    token                  = data.aws_eks_cluster_auth.bsp_eks.token
+    host                   = data.aws_eks_cluster.bsp_eks.endpoint
+    cluster_ca_certificate = base64decode(data.aws_eks_cluster.bsp_eks.certificate_authority[0].data)
+    
+    exec {
+      api_version = "client.authentication.k8s.io/v1beta1"
+      command     = "aws"
+      args        = ["eks", "get-token", "--cluster-name", aws_eks_cluster.main.name, "--region", "us-east-1"]
+    }
   }
 }
