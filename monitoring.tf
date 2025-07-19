@@ -13,19 +13,7 @@ resource "aws_prometheus_workspace" "bsp_amp" {
   }
 }
 
-# 2. Get AMP VPC Endpoint details
-data "aws_vpc_endpoint" "amp" {
-  filter {
-    name   = "service-name"
-    values = ["com.amazonaws.us-east-1.aps-workspaces"]
-  }
-  filter {
-    name   = "vpc-id"
-    values = [data.aws_vpc.existing.id]
-  }
-}
-
-# 3. IAM Role for Grafana with custom policy
+# 2. IAM Role for Grafana with custom policy
 resource "aws_iam_role" "grafana_role" {
   name = "bsp-grafana-service-role"
 
@@ -48,7 +36,7 @@ resource "aws_iam_role" "grafana_role" {
   }
 }
 
-# 4. Custom policy for Grafana
+# 3. Custom policy for Grafana
 resource "aws_iam_policy" "grafana_custom_policy" {
   name        = "bsp-grafana-custom-policy"
   description = "Custom policy for AWS Managed Grafana"
@@ -86,7 +74,7 @@ resource "aws_iam_role_policy_attachment" "grafana_custom_policy" {
   role       = aws_iam_role.grafana_role.name
 }
 
-# 5. Policy for Prometheus access
+# 4. Policy for Prometheus access
 resource "aws_iam_policy" "grafana_prometheus_policy" {
   name        = "bsp-grafana-prometheus-policy"
   description = "Policy for Grafana to access Prometheus workspace"
@@ -115,7 +103,7 @@ resource "aws_iam_role_policy_attachment" "grafana_prometheus_policy" {
   role       = aws_iam_role.grafana_role.name
 }
 
-# 6. Create AWS Managed Grafana Workspace
+# 5. Create AWS Managed Grafana Workspace
 resource "aws_grafana_workspace" "bsp_grafana" {
   account_access_type      = "CURRENT_ACCOUNT"
   authentication_providers = ["AWS_SSO"]
@@ -124,7 +112,13 @@ resource "aws_grafana_workspace" "bsp_grafana" {
   name                     = "bsp-grafana-poc"
   description              = "BSP Grafana workspace for monitoring EKS cluster"
   
-  data_sources = ["PROMETHEUS"]
+  data_sources = ["PROMETHEUS", "CLOUDWATCH"]
+  
+  # VPC Configuration for private access
+  vpc_configuration {
+    security_group_ids = [aws_security_group.vpc_endpoints.id]
+    subnet_ids         = [data.aws_subnet.private_az1.id, data.aws_subnet.private_az2.id]
+  }
   
   tags = {
     Name        = "bsp-grafana-workspace"
@@ -135,11 +129,14 @@ resource "aws_grafana_workspace" "bsp_grafana" {
 
   depends_on = [
     aws_iam_role_policy_attachment.grafana_custom_policy,
-    aws_iam_role_policy_attachment.grafana_prometheus_policy
+    aws_iam_role_policy_attachment.grafana_prometheus_policy,
+    aws_vpc_endpoint.grafana,
+    aws_vpc_endpoint.grafana_workspace,
+    aws_vpc_endpoint.aps_workspaces
   ]
 }
 
-# 7. Create monitoring namespace first
+# 6. Create monitoring namespace first
 resource "kubernetes_namespace" "monitoring" {
   metadata {
     name = "monitoring"
@@ -157,7 +154,7 @@ resource "kubernetes_namespace" "monitoring" {
   ]
 }
 
-# 8. IAM Role for Prometheus Service Account (IRSA)
+# 7. IAM Role for Prometheus Service Account (IRSA)
 resource "aws_iam_role" "prometheus_role" {
   name = "bsp-prometheus-service-role"
 
@@ -181,7 +178,7 @@ resource "aws_iam_role" "prometheus_role" {
   })
 }
 
-# 9. Policy for Prometheus to write to AMP
+# 8. Policy for Prometheus to write to AMP
 resource "aws_iam_policy" "prometheus_policy" {
   name        = "bsp-prometheus-amp-policy"
   description = "Policy for Prometheus to write metrics to AMP"
@@ -209,7 +206,7 @@ resource "aws_iam_role_policy_attachment" "prometheus_policy" {
   role       = aws_iam_role.prometheus_role.name
 }
 
-# 10. Create Kubernetes Service Account for Prometheus
+# 9. Create Kubernetes Service Account for Prometheus
 resource "kubernetes_service_account" "prometheus" {
   metadata {
     name      = "prometheus-server"
@@ -222,18 +219,7 @@ resource "kubernetes_service_account" "prometheus" {
   depends_on = [kubernetes_namespace.monitoring]
 }
 
-# 11. Deploy Prometheus with VPC endpoint URL
-#  Add this to your monitoring.tf file BEFORE the helm_release
-
-# First, let's delete the existing release and recreate it clean
-# Run this command first: helm uninstall prometheus-simple -n monitoring
-
-# First, let's delete the existing release and recreate it clean
-# Run this command first: helm uninstall prometheus-simple -n monitoring
-
-# Create our custom ConfigMap with the exact name Helm expects
-# 1. Deploy basic Helm release first (without custom config)
-# 1. Deploy basic Helm release first
+# 10. Deploy basic Helm release first
 resource "helm_release" "prometheus_simple" {
   name       = "prometheus-simple"
   repository = "https://prometheus-community.github.io/helm-charts"
@@ -322,13 +308,13 @@ resource "helm_release" "prometheus_simple" {
   ]
 }
 
-# 2. Wait for deployment to be ready
+# 11. Wait for deployment to be ready
 resource "time_sleep" "wait_for_helm" {
   depends_on = [helm_release.prometheus_simple]
   create_duration = "60s"
 }
 
-# 3. Create ConfigMap with proper remote_write config using Terraform
+# 12. Create ConfigMap with proper remote_write config using Terraform
 resource "kubernetes_config_map_v1_data" "prometheus_config_patch" {
   depends_on = [time_sleep.wait_for_helm]
 
@@ -390,7 +376,7 @@ resource "kubernetes_config_map_v1_data" "prometheus_config_patch" {
   force = true  # This ensures it overwrites the existing data
 }
 
-# 4. Restart Prometheus to pick up the new configuration
+# 13. Restart Prometheus to pick up the new configuration
 resource "null_resource" "restart_prometheus" {
   depends_on = [kubernetes_config_map_v1_data.prometheus_config_patch]
 
@@ -403,7 +389,7 @@ resource "null_resource" "restart_prometheus" {
   }
 }
 
-# 5. Wait for rollout to complete
+# 14. Wait for rollout to complete
 resource "null_resource" "wait_for_restart" {
   depends_on = [null_resource.restart_prometheus]
 
@@ -416,7 +402,7 @@ resource "null_resource" "wait_for_restart" {
   }
 }
 
-# 6. Simple validation
+# 15. Simple validation
 resource "null_resource" "validate_setup" {
   depends_on = [null_resource.wait_for_restart]
 
@@ -442,7 +428,8 @@ resource "null_resource" "validate_setup" {
     validation_id = null_resource.wait_for_restart.id
   }
 }
-# 12. Outputs
+
+# 16. Outputs
 output "monitoring_info" {
   description = "Monitoring infrastructure information"
   value = {
@@ -450,7 +437,7 @@ output "monitoring_info" {
       id                  = aws_prometheus_workspace.bsp_amp.id
       arn                 = aws_prometheus_workspace.bsp_amp.arn
       prometheus_endpoint = aws_prometheus_workspace.bsp_amp.prometheus_endpoint
-      vpc_endpoint_url    = "https://${data.aws_vpc_endpoint.amp.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.bsp_amp.id}/"
+      vpc_endpoint_url    = "https://${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.bsp_amp.id}/"
     }
     grafana_workspace = {
       id       = aws_grafana_workspace.bsp_grafana.id
@@ -458,8 +445,8 @@ output "monitoring_info" {
       endpoint = aws_grafana_workspace.bsp_grafana.endpoint
     }
     vpc_endpoint = {
-      id       = data.aws_vpc_endpoint.amp.id
-      dns_name = data.aws_vpc_endpoint.amp.dns_entry[0].dns_name
+      id       = aws_vpc_endpoint.aps_workspaces.id
+      dns_name = aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name
     }
   }
 }
@@ -473,7 +460,7 @@ output "monitoring_verification_commands" {
     check_helm_releases = "helm list -n monitoring"
     check_namespace_labels = "kubectl get namespace monitoring --show-labels"
     check_prometheus_config = "kubectl get configmap prometheus-simple-server -n monitoring -o yaml | grep -A 10 remote_write"
-    test_amp_connectivity = "kubectl exec -n monitoring deployment/prometheus-simple-server -- curl -s -o /dev/null -w '%%{http_code}' https://${data.aws_vpc_endpoint.amp.dns_entry[0].dns_name}/"
+    test_amp_connectivity = "kubectl exec -n monitoring deployment/prometheus-simple-server -- curl -s -o /dev/null -w '%%{http_code}' https://${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/"
   }
 }
 
@@ -481,8 +468,8 @@ output "amp_connection_details" {
   description = "AMP connection details for verification"
   value = {
     workspace_id = aws_prometheus_workspace.bsp_amp.id
-    vpc_endpoint_dns = data.aws_vpc_endpoint.amp.dns_entry[0].dns_name
-    remote_write_url = "https://${data.aws_vpc_endpoint.amp.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.bsp_amp.id}/api/v1/remote_write"
-    grafana_data_source_url = "https://${data.aws_vpc_endpoint.amp.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.bsp_amp.id}/"
+    vpc_endpoint_dns = aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name
+    remote_write_url = "https://${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.bsp_amp.id}/api/v1/remote_write"
+    grafana_data_source_url = "https://${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.bsp_amp.id}/"
   }
 }
