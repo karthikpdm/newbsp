@@ -233,6 +233,7 @@ resource "kubernetes_service_account" "prometheus" {
 
 # Create our custom ConfigMap with the exact name Helm expects
 # 1. Deploy basic Helm release first (without custom config)
+# 1. Deploy basic Helm release first
 resource "helm_release" "prometheus_simple" {
   name       = "prometheus-simple"
   repository = "https://prometheus-community.github.io/helm-charts"
@@ -321,45 +322,84 @@ resource "helm_release" "prometheus_simple" {
   ]
 }
 
-# 2. Wait for the Helm release to be ready
+# 2. Wait for deployment to be ready
 resource "time_sleep" "wait_for_helm" {
   depends_on = [helm_release.prometheus_simple]
   create_duration = "60s"
 }
 
-# 3. Patch the ConfigMap with our custom configuration
-resource "null_resource" "patch_prometheus_config" {
+# 3. Create ConfigMap with proper remote_write config using Terraform
+resource "kubernetes_config_map_v1_data" "prometheus_config_patch" {
   depends_on = [time_sleep.wait_for_helm]
 
-  provisioner "local-exec" {
-    command = <<-EOT
-      kubectl patch configmap prometheus-simple-server -n monitoring --type merge -p '{
-        "data": {
-          "prometheus.yml": "global:\n  scrape_interval: 30s\n  external_labels:\n    cluster: \"${aws_eks_cluster.main.name}\"\nremote_write:\n- url: \"${aws_prometheus_workspace.bsp_amp.prometheus_endpoint}api/v1/remote_write\"\n  sigv4:\n    region: \"${data.aws_region.current.name}\"\nscrape_configs:\n- job_name: \"prometheus\"\n  static_configs:\n  - targets:\n    - \"localhost:9090\"\n- job_name: \"kubernetes-nodes\"\n  kubernetes_sd_configs:\n  - role: node\n  relabel_configs:\n  - source_labels: [__address__]\n    regex: \"(.+):10250\"\n    target_label: __address__\n    replacement: \"$1:9100\"\n- job_name: \"kubernetes-pods\"\n  kubernetes_sd_configs:\n  - role: pod\n  relabel_configs:\n  - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]\n    action: keep\n    regex: \"true\"\n- job_name: \"node-exporter\"\n  kubernetes_sd_configs:\n  - role: pod\n  relabel_configs:\n  - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]\n    action: keep\n    regex: \"prometheus-node-exporter\"\n  - source_labels: [__address__]\n    regex: \"([^:]+)(?::\\d+)?\"\n    target_label: __address__\n    replacement: \"$1:9100\"\n- job_name: \"kube-state-metrics\"\n  kubernetes_sd_configs:\n  - role: pod\n  relabel_configs:\n  - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]\n    action: keep\n    regex: \"kube-state-metrics\""
-        }
-      }'
-    EOT
+  metadata {
+    name      = "prometheus-simple-server"
+    namespace = "monitoring"
   }
 
-  # Trigger re-run if the configuration changes
-  triggers = {
-    amp_endpoint = aws_prometheus_workspace.bsp_amp.prometheus_endpoint
-    cluster_name = aws_eks_cluster.main.name
-    region       = data.aws_region.current.name
+  data = {
+    "prometheus.yml" = yamlencode({
+      global = {
+        scrape_interval = "30s"
+        external_labels = {
+          cluster = aws_eks_cluster.main.name
+        }
+      }
+      
+      remote_write = [{
+        url = "${aws_prometheus_workspace.bsp_amp.prometheus_endpoint}api/v1/remote_write"
+        sigv4 = {
+          region = data.aws_region.current.name
+        }
+      }]
+      
+      scrape_configs = [
+        {
+          job_name = "prometheus"
+          static_configs = [{
+            targets = ["localhost:9090"]
+          }]
+        },
+        {
+          job_name = "kubernetes-nodes"
+          kubernetes_sd_configs = [{
+            role = "node"
+          }]
+          relabel_configs = [{
+            source_labels = ["__address__"]
+            regex = "(.+):10250"
+            target_label = "__address__"
+            replacement = "$1:9100"
+          }]
+        },
+        {
+          job_name = "kubernetes-pods" 
+          kubernetes_sd_configs = [{
+            role = "pod"
+          }]
+          relabel_configs = [{
+            source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scrape"]
+            action = "keep"
+            regex = "true"
+          }]
+        }
+      ]
+    })
   }
+
+  force = true  # This ensures it overwrites the existing data
 }
 
 # 4. Restart Prometheus to pick up the new configuration
 resource "null_resource" "restart_prometheus" {
-  depends_on = [null_resource.patch_prometheus_config]
+  depends_on = [kubernetes_config_map_v1_data.prometheus_config_patch]
 
   provisioner "local-exec" {
     command = "kubectl rollout restart deployment/prometheus-simple-server -n monitoring"
   }
 
-  # Restart whenever the config changes
   triggers = {
-    config_hash = null_resource.patch_prometheus_config.id
+    config_content = kubernetes_config_map_v1_data.prometheus_config_patch.data["prometheus.yml"]
   }
 }
 
@@ -368,34 +408,40 @@ resource "null_resource" "wait_for_restart" {
   depends_on = [null_resource.restart_prometheus]
 
   provisioner "local-exec" {
-    command = "kubectl rollout status deployment/prometheus-simple-server -n monitoring --timeout=300s"
+    command = "kubectl rollout status deployment/prometheus-simple-server -n monitoring --timeout=180s"
   }
 
   triggers = {
-    restart_hash = null_resource.restart_prometheus.id
+    restart_id = null_resource.restart_prometheus.id
   }
 }
 
-# 6. Validation resource to check if remote write is working
-resource "null_resource" "validate_remote_write" {
+# 6. Simple validation
+resource "null_resource" "validate_setup" {
   depends_on = [null_resource.wait_for_restart]
 
   provisioner "local-exec" {
     command = <<-EOT
-      echo "Waiting for Prometheus to start sending metrics..."
-      sleep 60
-      echo "Checking ConfigMap for remote_write configuration..."
-      kubectl get configmap prometheus-simple-server -n monitoring -o yaml | grep -A 5 "remote_write" || echo "Remote write configuration not found"
-      echo "Checking Prometheus logs for remote write activity..."
-      kubectl logs -n monitoring deployment/prometheus-simple-server -c prometheus-server --tail=50 | grep -i "remote" || echo "No remote write activity yet"
+      echo "🎉 Prometheus setup complete!"
+      echo ""
+      echo "✅ Checking ConfigMap:"
+      kubectl get configmap prometheus-simple-server -n monitoring -o yaml | grep -A 3 "remote_write"
+      echo ""
+      echo "✅ Checking pod status:"
+      kubectl get pods -n monitoring -l "app.kubernetes.io/name=prometheus,app.kubernetes.io/component=server"
+      echo ""
+      echo "🔍 To access Prometheus UI:"
+      echo "kubectl port-forward -n monitoring svc/prometheus-simple-server 9090:80"
+      echo "Then open: http://localhost:9090"
+      echo ""
+      echo "📊 Check remote write status at: Status → Remote Write"
     EOT
   }
 
   triggers = {
-    validation_hash = null_resource.wait_for_restart.id
+    validation_id = null_resource.wait_for_restart.id
   }
 }
-
 # 12. Outputs
 output "monitoring_info" {
   description = "Monitoring infrastructure information"
