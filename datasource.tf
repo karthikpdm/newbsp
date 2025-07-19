@@ -128,6 +128,43 @@ resource "aws_vpc_endpoint" "s3" {
   }
 }
 
+
+
+# Add these 2 endpoints to your existing data-sources.tf
+
+# 1. AWS Managed Prometheus (AMP) VPC Endpoint - REQUIRED for remote write
+resource "aws_vpc_endpoint" "amp" {
+  vpc_id              = data.aws_vpc.existing.id
+  service_name        = "com.amazonaws.${data.aws_region.current.name}.aps-workspaces"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [data.aws_subnet.private_az1.id, data.aws_subnet.private_az2.id]
+  security_group_ids  = [aws_security_group.vpc_endpoint.id]
+  
+  private_dns_enabled = true
+  
+  tags = {
+    Name = "bsp-amp-vpc-endpoint"
+    Environment = "poc"
+  }
+}
+
+# 2. AWS STS VPC Endpoint - REQUIRED for IAM role assumption (IRSA)
+resource "aws_vpc_endpoint" "sts" {
+  vpc_id              = data.aws_vpc.existing.id
+  service_name        = "com.amazonaws.${data.aws_region.current.name}.sts"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [data.aws_subnet.private_az1.id, data.aws_subnet.private_az2.id]
+  security_group_ids  = [aws_security_group.vpc_endpoint.id]
+  
+  private_dns_enabled = true
+  
+  tags = {
+    Name = "bsp-sts-vpc-endpoint"
+    Environment = "poc"
+  }
+}
+
+
 # Outputs
 output "essential_vpc_endpoints" {
   description = "Essential VPC Endpoints for private EKS cluster"
