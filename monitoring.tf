@@ -223,7 +223,7 @@ resource "kubernetes_service_account" "prometheus" {
 }
 
 # 11. Deploy Prometheus with VPC endpoint URL
- Add this to your monitoring.tf file BEFORE the helm_release
+#  Add this to your monitoring.tf file BEFORE the helm_release
 
 # Create a custom ConfigMap with remote_write configuration
 resource "kubernetes_config_map" "prometheus_custom_config" {
