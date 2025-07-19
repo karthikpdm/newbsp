@@ -132,40 +132,9 @@ resource "aws_vpc_endpoint" "s3" {
 
 # Add these 2 endpoints to your existing data-sources.tf
 
-# 1. AWS Managed Prometheus (AMP) VPC Endpoint - REQUIRED for remote write
-resource "aws_vpc_endpoint" "amp" {
-  vpc_id              = data.aws_vpc.existing.id
-  service_name        = "com.amazonaws.${data.aws_region.current.name}.aps-workspaces"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = [data.aws_subnet.private_az1.id, data.aws_subnet.private_az2.id]
-  security_group_ids  = [aws_security_group.vpc_endpoint.id]
-  
-  private_dns_enabled = true
-  
-  tags = {
-    Name = "bsp-amp-vpc-endpoint"
-    Environment = "poc"
-  }
-}
+#  Fixed VPC Endpoints for AWS Managed Grafana
 
-# 2. AWS STS VPC Endpoint - REQUIRED for IAM role assumption (IRSA)
-resource "aws_vpc_endpoint" "sts" {
-  vpc_id              = data.aws_vpc.existing.id
-  service_name        = "com.amazonaws.${data.aws_region.current.name}.sts"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = [data.aws_subnet.private_az1.id, data.aws_subnet.private_az2.id]
-  security_group_ids  = [aws_security_group.vpc_endpoint.id]
-  
-  private_dns_enabled = true
-  
-  tags = {
-    Name = "bsp-sts-vpc-endpoint"
-    Environment = "poc"
-  }
-}
-
-
-#  1. Grafana Service VPC Endpoint (Primary)
+# 1. Grafana Service VPC Endpoint (Primary)
 resource "aws_vpc_endpoint" "grafana" {
   vpc_id              = data.aws_vpc.existing.id
   service_name        = "com.amazonaws.${data.aws_region.current.name}.grafana"
@@ -173,15 +142,14 @@ resource "aws_vpc_endpoint" "grafana" {
   subnet_ids          = [data.aws_subnet.private_az1.id, data.aws_subnet.private_az2.id]
   security_group_ids  = [aws_security_group.grafana_vpc_endpoint.id]
   
+  # Use full access policy for grafana service
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
         Effect = "Allow"
         Principal = "*"
-        Action = [
-          "grafana:*"
-        ]
+        Action = "*"
         Resource = "*"
       }
     ]
@@ -194,7 +162,7 @@ resource "aws_vpc_endpoint" "grafana" {
   }
 }
 
-# 2. Grafana Workspace VPC Endpoint (for workspace access)
+# 2. Grafana Workspace VPC Endpoint (NO CUSTOM POLICY - full access only)
 resource "aws_vpc_endpoint" "grafana_workspace" {
   vpc_id              = data.aws_vpc.existing.id
   service_name        = "com.amazonaws.${data.aws_region.current.name}.grafana-workspace"
@@ -202,19 +170,8 @@ resource "aws_vpc_endpoint" "grafana_workspace" {
   subnet_ids          = [data.aws_subnet.private_az1.id, data.aws_subnet.private_az2.id]
   security_group_ids  = [aws_security_group.grafana_vpc_endpoint.id]
   
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Principal = "*"
-        Action = [
-          "grafana:*"
-        ]
-        Resource = "*"
-      }
-    ]
-  })
+  # Remove custom policy - this service only supports full-access
+  # policy = ... (removed)
 
   tags = {
     Name        = "grafana-workspace-vpc-endpoint"
