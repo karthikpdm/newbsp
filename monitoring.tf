@@ -225,11 +225,19 @@ resource "kubernetes_service_account" "prometheus" {
 # 11. Deploy Prometheus with VPC endpoint URL
 #  Add this to your monitoring.tf file BEFORE the helm_release
 
-# Create a custom ConfigMap with remote_write configuration
-resource "kubernetes_config_map" "prometheus_custom_config" {
+# First, let's delete the existing release and recreate it clean
+# Run this command first: helm uninstall prometheus-simple -n monitoring
+
+# Create our custom ConfigMap with the exact name Helm expects
+resource "kubernetes_config_map" "prometheus_server_config" {
   metadata {
-    name      = "prometheus-custom-config"
+    name      = "prometheus-simple-server"
     namespace = kubernetes_namespace.monitoring.metadata[0].name
+    labels = {
+      "app.kubernetes.io/component" = "server"
+      "app.kubernetes.io/instance"  = "prometheus-simple"
+      "app.kubernetes.io/name"      = "prometheus"
+    }
   }
 
   data = {
@@ -254,25 +262,19 @@ resource "kubernetes_config_map" "prometheus_custom_config" {
           static_configs = [{
             targets = ["localhost:9090"]
           }]
-        },
-        {
-          job_name = "kubernetes-nodes"
-          kubernetes_sd_configs = [{
-            role = "node"
-          }]
-          relabel_configs = [{
-            source_labels = ["__address__"]
-            regex = "(.+):10250"
-            target_label = "__address__"
-            replacement = "$1:9100"
-          }]
         }
       ]
     })
+    
+    "alerting_rules.yml" = "{}"
+    "recording_rules.yml" = "{}"
+    "rules" = "{}"
+    "alerts" = "{}"
+    "allow-snippet-annotations" = "false"
   }
 }
 
-# Simplified helm_release that uses our custom ConfigMap
+# Simple helm release without config overrides
 resource "helm_release" "prometheus_simple" {
   name       = "prometheus-simple"
   repository = "https://prometheus-community.github.io/helm-charts"
@@ -290,23 +292,6 @@ resource "helm_release" "prometheus_simple" {
       }
       
       server = {
-        # Use our custom ConfigMap
-        configPath = "/etc/config/prometheus.yml"
-        
-        # Mount our custom ConfigMap
-        extraVolumes = [{
-          name = "custom-config"
-          configMap = {
-            name = kubernetes_config_map.prometheus_custom_config.metadata[0].name
-          }
-        }]
-        
-        extraVolumeMounts = [{
-          name = "custom-config"
-          mountPath = "/etc/config"
-          readOnly = true
-        }]
-        
         resources = {
           limits = {
             cpu    = "500m"
@@ -336,7 +321,7 @@ resource "helm_release" "prometheus_simple" {
       }
       
       nodeExporter = {
-        enabled = false  # Simplify for now
+        enabled = false
       }
       
       pushgateway = {
@@ -344,7 +329,7 @@ resource "helm_release" "prometheus_simple" {
       }
       
       kubeStateMetrics = {
-        enabled = false  # Simplify for now
+        enabled = false
       }
     })
   ]
@@ -355,7 +340,7 @@ resource "helm_release" "prometheus_simple" {
   depends_on = [
     kubernetes_service_account.prometheus,
     aws_iam_role_policy_attachment.prometheus_policy,
-    kubernetes_config_map.prometheus_custom_config
+    kubernetes_config_map.prometheus_server_config
   ]
 }
 
