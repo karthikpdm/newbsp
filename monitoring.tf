@@ -255,7 +255,7 @@ resource "helm_release" "prometheus_simple" {
           
           remote_write = [
             {
-              url = "https://${data.aws_vpc_endpoint.amp.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.bsp_amp.id}/api/v1/remote_write"
+              url = "${aws_prometheus_workspace.bsp_amp.prometheus_endpoint}api/v1/remote_write"
               sigv4 = {
                 region = data.aws_region.current.name
               }
