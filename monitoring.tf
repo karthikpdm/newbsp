@@ -223,7 +223,56 @@ resource "kubernetes_service_account" "prometheus" {
 }
 
 # 11. Deploy Prometheus with VPC endpoint URL
-# Replace the helm_release resource with this corrected version
+ Add this to your monitoring.tf file BEFORE the helm_release
+
+# Create a custom ConfigMap with remote_write configuration
+resource "kubernetes_config_map" "prometheus_custom_config" {
+  metadata {
+    name      = "prometheus-custom-config"
+    namespace = kubernetes_namespace.monitoring.metadata[0].name
+  }
+
+  data = {
+    "prometheus.yml" = yamlencode({
+      global = {
+        scrape_interval = "30s"
+        external_labels = {
+          cluster = aws_eks_cluster.main.name
+        }
+      }
+      
+      remote_write = [{
+        url = "${aws_prometheus_workspace.bsp_amp.prometheus_endpoint}api/v1/remote_write"
+        sigv4 = {
+          region = data.aws_region.current.name
+        }
+      }]
+      
+      scrape_configs = [
+        {
+          job_name = "prometheus"
+          static_configs = [{
+            targets = ["localhost:9090"]
+          }]
+        },
+        {
+          job_name = "kubernetes-nodes"
+          kubernetes_sd_configs = [{
+            role = "node"
+          }]
+          relabel_configs = [{
+            source_labels = ["__address__"]
+            regex = "(.+):10250"
+            target_label = "__address__"
+            replacement = "$1:9100"
+          }]
+        }
+      ]
+    })
+  }
+}
+
+# Simplified helm_release that uses our custom ConfigMap
 resource "helm_release" "prometheus_simple" {
   name       = "prometheus-simple"
   repository = "https://prometheus-community.github.io/helm-charts"
@@ -233,7 +282,6 @@ resource "helm_release" "prometheus_simple" {
 
   values = [
     yamlencode({
-      # Service account configuration
       serviceAccounts = {
         server = {
           create = false
@@ -241,97 +289,24 @@ resource "helm_release" "prometheus_simple" {
         }
       }
       
-      # Prometheus server configuration
       server = {
-        # Use configMapOverrides instead of config (this actually works)
-        configMapOverrides = {
-          "prometheus.yml" = yamlencode({
-            global = {
-              scrape_interval = "15s"
-              evaluation_interval = "15s"
-              external_labels = {
-                cluster = aws_eks_cluster.main.name
-              }
-            }
-            
-            remote_write = [
-              {
-                url = "${aws_prometheus_workspace.bsp_amp.prometheus_endpoint}api/v1/remote_write"
-                sigv4 = {
-                  region = data.aws_region.current.name
-                }
-                write_relabel_configs = [
-                  {
-                    source_labels = ["__name__"]
-                    regex = "prometheus_.*|up"
-                    action = "drop"
-                  }
-                ]
-              }
-            ]
-            
-            scrape_configs = [
-              {
-                job_name = "prometheus"
-                static_configs = [
-                  {
-                    targets = ["localhost:9090"]
-                  }
-                ]
-              },
-              {
-                job_name = "kubernetes-nodes"
-                kubernetes_sd_configs = [
-                  {
-                    role = "node"
-                  }
-                ]
-                relabel_configs = [
-                  {
-                    source_labels = ["__address__"]
-                    regex = "(.*):10250"
-                    target_label = "__address__"
-                    replacement = "$1:9100"
-                  },
-                  {
-                    source_labels = ["__meta_kubernetes_node_name"]
-                    target_label = "instance"
-                  }
-                ]
-              },
-              {
-                job_name = "kubernetes-pods"
-                kubernetes_sd_configs = [
-                  {
-                    role = "pod"
-                  }
-                ]
-                relabel_configs = [
-                  {
-                    source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scrape"]
-                    action = "keep"
-                    regex = "true"
-                  },
-                  {
-                    source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_path"]
-                    action = "replace"
-                    target_label = "__metrics_path__"
-                    regex = "(.+)"
-                  },
-                  {
-                    source_labels = ["__address__", "__meta_kubernetes_pod_annotation_prometheus_io_port"]
-                    action = "replace"
-                    regex = "([^:]+)(?::\\d+)?;(\\d+)"
-                    replacement = "$1:$2"
-                    target_label = "__address__"
-                  }
-                ]
-              }
-            ]
-          })
-        }
+        # Use our custom ConfigMap
+        configPath = "/etc/config/prometheus.yml"
         
-        # Resource limits
+        # Mount our custom ConfigMap
+        extraVolumes = [{
+          name = "custom-config"
+          configMap = {
+            name = kubernetes_config_map.prometheus_custom_config.metadata[0].name
+          }
+        }]
+        
+        extraVolumeMounts = [{
+          name = "custom-config"
+          mountPath = "/etc/config"
+          readOnly = true
+        }]
+        
         resources = {
           limits = {
             cpu    = "500m"
@@ -343,39 +318,25 @@ resource "helm_release" "prometheus_simple" {
           }
         }
         
-        # Node selector
         nodeSelector = {
           "node-role" = "osdu-backend"
         }
         
-        # Storage
         persistentVolume = {
           enabled = true
           size    = "8Gi"
           storageClass = "gp2"
         }
         
-        # Retention
         retention = "7d"
       }
       
-      # Disable other components to reduce complexity
       alertmanager = {
         enabled = false
       }
       
       nodeExporter = {
-        enabled = true
-        resources = {
-          limits = {
-            cpu    = "100m"
-            memory = "128Mi"
-          }
-          requests = {
-            cpu    = "50m"
-            memory = "64Mi"
-          }
-        }
+        enabled = false  # Simplify for now
       }
       
       pushgateway = {
@@ -383,17 +344,7 @@ resource "helm_release" "prometheus_simple" {
       }
       
       kubeStateMetrics = {
-        enabled = true
-        resources = {
-          limits = {
-            cpu    = "100m"
-            memory = "128Mi"
-          }
-          requests = {
-            cpu    = "50m"
-            memory = "64Mi"
-          }
-        }
+        enabled = false  # Simplify for now
       }
     })
   ]
@@ -403,9 +354,11 @@ resource "helm_release" "prometheus_simple" {
 
   depends_on = [
     kubernetes_service_account.prometheus,
-    aws_iam_role_policy_attachment.prometheus_policy
+    aws_iam_role_policy_attachment.prometheus_policy,
+    kubernetes_config_map.prometheus_custom_config
   ]
 }
+
 # 12. Outputs
 output "monitoring_info" {
   description = "Monitoring infrastructure information"
