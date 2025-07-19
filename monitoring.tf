@@ -74,7 +74,7 @@ resource "aws_iam_role_policy_attachment" "grafana_custom_policy" {
   role       = aws_iam_role.grafana_role.name
 }
 
-# 4. Policy for Prometheus access
+# 4. Policy for Prometheus access (FIXED - includes all necessary permissions)
 resource "aws_iam_policy" "grafana_prometheus_policy" {
   name        = "bsp-grafana-prometheus-policy"
   description = "Policy for Grafana to access Prometheus workspace"
@@ -130,8 +130,6 @@ resource "aws_grafana_workspace" "bsp_grafana" {
   depends_on = [
     aws_iam_role_policy_attachment.grafana_custom_policy,
     aws_iam_role_policy_attachment.grafana_prometheus_policy,
-    aws_vpc_endpoint.grafana,
-    aws_vpc_endpoint.grafana_workspace,
     aws_vpc_endpoint.aps_workspaces
   ]
 }
@@ -314,7 +312,7 @@ resource "time_sleep" "wait_for_helm" {
   create_duration = "60s"
 }
 
-# 12. Create ConfigMap with proper remote_write config using Terraform
+# 12. FIXED: Create ConfigMap with VPC endpoint URL instead of public endpoint
 resource "kubernetes_config_map_v1_data" "prometheus_config_patch" {
   depends_on = [time_sleep.wait_for_helm]
 
@@ -332,8 +330,9 @@ resource "kubernetes_config_map_v1_data" "prometheus_config_patch" {
         }
       }
       
+      # FIXED: Use VPC endpoint instead of public endpoint
       remote_write = [{
-        url = "${aws_prometheus_workspace.bsp_amp.prometheus_endpoint}api/v1/remote_write"
+        url = "https://${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.bsp_amp.id}/api/v1/remote_write"
         sigv4 = {
           region = data.aws_region.current.name
         }
@@ -421,6 +420,10 @@ resource "null_resource" "validate_setup" {
       echo "Then open: http://localhost:9090"
       echo ""
       echo "📊 Check remote write status at: Status → Remote Write"
+      echo ""
+      echo "🔗 Grafana URL: https://${aws_grafana_workspace.bsp_grafana.endpoint}"
+      echo "📈 Use this data source URL in Grafana:"
+      echo "https://${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.bsp_amp.id}/"
     EOT
   }
 
