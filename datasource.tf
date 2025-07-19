@@ -130,61 +130,11 @@ resource "aws_vpc_endpoint" "s3" {
 
 
 
-# Add these 2 endpoints to your existing data-sources.tf
-
-#  Fixed VPC Endpoints for AWS Managed Grafana
-
-# 1. Grafana Service VPC Endpoint (Primary)
-resource "aws_vpc_endpoint" "grafana" {
-  vpc_id              = data.aws_vpc.existing.id
-  service_name        = "com.amazonaws.${data.aws_region.current.name}.grafana"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = [data.aws_subnet.private_az1.id, data.aws_subnet.private_az2.id]
-  security_group_ids  = [aws_security_group.grafana_vpc_endpoint.id]
-  
-  # Use full access policy for grafana service
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Principal = "*"
-        Action = "*"
-        Resource = "*"
-      }
-    ]
-  })
-
-  tags = {
-    Name        = "grafana-vpc-endpoint"
-    Environment = "poc"
-    Project     = "bsp"
-  }
-}
-
-# 2. Grafana Workspace VPC Endpoint (NO CUSTOM POLICY - full access only)
-resource "aws_vpc_endpoint" "grafana_workspace" {
-  vpc_id              = data.aws_vpc.existing.id
-  service_name        = "com.amazonaws.${data.aws_region.current.name}.grafana-workspace"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = [data.aws_subnet.private_az1.id, data.aws_subnet.private_az2.id]
-  security_group_ids  = [aws_security_group.grafana_vpc_endpoint.id]
-  
-  # Remove custom policy - this service only supports full-access
-  # policy = ... (removed)
-
-  tags = {
-    Name        = "grafana-workspace-vpc-endpoint"
-    Environment = "poc"
-    Project     = "bsp"
-  }
-}
-
-# 3. Security Group for Grafana VPC Endpoints
-resource "aws_security_group" "grafana_vpc_endpoint" {
-  name_prefix = "grafana-vpc-endpoint-"
+# 1. Security Group for all VPC Endpoints
+resource "aws_security_group" "vpc_endpoints" {
+  name_prefix = "vpc-endpoints-"
   vpc_id      = data.aws_vpc.existing.id
-  description = "Security group for Grafana VPC endpoints"
+  description = "Security group for VPC endpoints"
 
   ingress {
     description = "HTTPS from VPC"
@@ -211,11 +161,116 @@ resource "aws_security_group" "grafana_vpc_endpoint" {
   }
 
   tags = {
-    Name        = "grafana-vpc-endpoint-sg"
+    Name        = "vpc-endpoints-sg"
     Environment = "poc"
     Project     = "bsp"
   }
 }
+
+# 2. Amazon Managed Prometheus (APS) VPC Endpoint
+resource "aws_vpc_endpoint" "aps" {
+  vpc_id              = data.aws_vpc.existing.id
+  service_name        = "com.amazonaws.${data.aws_region.current.name}.aps"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [data.aws_subnet.private_az1.id, data.aws_subnet.private_az2.id]
+  security_group_ids  = [aws_security_group.vpc_endpoints.id]
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = "*"
+        Action = [
+          "aps:*"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = {
+    Name        = "prometheus-vpc-endpoint"
+    Environment = "poc"
+    Project     = "bsp"
+  }
+}
+
+# 3. Amazon Managed Prometheus Workspaces VPC Endpoint
+resource "aws_vpc_endpoint" "aps_workspaces" {
+  vpc_id              = data.aws_vpc.existing.id
+  service_name        = "com.amazonaws.${data.aws_region.current.name}.aps-workspaces"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [data.aws_subnet.private_az1.id, data.aws_subnet.private_az2.id]
+  security_group_ids  = [aws_security_group.vpc_endpoints.id]
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = "*"
+        Action = [
+          "aps:*"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = {
+    Name        = "prometheus-api-vpc-endpoint"
+    Environment = "poc"
+    Project     = "bsp"
+  }
+}
+
+# 4. Grafana Service VPC Endpoint
+resource "aws_vpc_endpoint" "grafana" {
+  vpc_id              = data.aws_vpc.existing.id
+  service_name        = "com.amazonaws.${data.aws_region.current.name}.grafana"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [data.aws_subnet.private_az1.id, data.aws_subnet.private_az2.id]
+  security_group_ids  = [aws_security_group.vpc_endpoints.id]
+  
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = "*"
+        Action = [
+          "grafana:*"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = {
+    Name        = "grafana-vpc-endpoint"
+    Environment = "poc"
+    Project     = "bsp"
+  }
+}
+
+# 5. Grafana Workspace VPC Endpoint (full access only)
+resource "aws_vpc_endpoint" "grafana_workspace" {
+  vpc_id              = data.aws_vpc.existing.id
+  service_name        = "com.amazonaws.${data.aws_region.current.name}.grafana-workspace"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [data.aws_subnet.private_az1.id, data.aws_subnet.private_az2.id]
+  security_group_ids  = [aws_security_group.vpc_endpoints.id]
+  
+  # No custom policy - this service only supports full-access
+
+  tags = {
+    Name        = "grafana-workspace-vpc-endpoint"
+    Environment = "poc"
+    Project     = "bsp"
+  }
+}
+
 
 
 # Outputs
