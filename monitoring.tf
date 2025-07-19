@@ -128,17 +128,35 @@ resource "aws_grafana_workspace" "bsp_grafana" {
 }
 
 # 6. Update monitoring namespace to DISABLE Istio injection
-resource "kubernetes_labels" "monitoring_namespace_labels" {
-  api_version = "v1"
-  kind        = "Namespace"
+# resource "kubernetes_labels" "monitoring_namespace_labels" {
+#   api_version = "v1"
+#   kind        = "Namespace"
+#   metadata {
+#     name = "monitoring"
+#   }
+#   labels = {
+#     "istio-injection" = "disabled"  # DISABLE Istio injection for monitoring
+#     "environment"     = "poc"
+#     "component"       = "monitoring"
+#     "managed-by"      = "terraform"
+#   }
+
+#   depends_on = [
+#     aws_eks_cluster.main,
+#     data.aws_eks_cluster_auth.bsp_eks
+#   ]
+# }
+
+# Create monitoring namespace first
+resource "kubernetes_namespace" "monitoring" {
   metadata {
     name = "monitoring"
-  }
-  labels = {
-    "istio-injection" = "disabled"  # DISABLE Istio injection for monitoring
-    "environment"     = "poc"
-    "component"       = "monitoring"
-    "managed-by"      = "terraform"
+    labels = {
+      "istio-injection" = "disabled"  # Disable Istio for monitoring
+      "environment"     = "poc"
+      "component"       = "monitoring"
+      "managed-by"      = "terraform"
+    }
   }
 
   depends_on = [

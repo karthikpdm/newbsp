@@ -62,4 +62,8 @@ resource "helm_release" "metrics_server" {
     name  = "metrics.enabled"
     value = "true"
   }
+
+  depends_on = [
+    kubernetes_namespace.monitoring  # Add this dependency
+  ]
 }
