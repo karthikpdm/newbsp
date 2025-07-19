@@ -411,7 +411,7 @@ output "monitoring_verification_commands" {
     check_helm_releases = "helm list -n monitoring"
     check_namespace_labels = "kubectl get namespace monitoring --show-labels"
     check_prometheus_config = "kubectl get configmap prometheus-simple-server -n monitoring -o yaml | grep -A 10 remote_write"
-    test_amp_connectivity = "kubectl exec -n monitoring deployment/prometheus-simple-server -- curl -s -o /dev/null -w '%{http_code}' https://${data.aws_vpc_endpoint.amp.dns_entry[0].dns_name}/"
+    test_amp_connectivity = "kubectl exec -n monitoring deployment/prometheus-simple-server -- curl -s -o /dev/null -w '%%{http_code}' https://${data.aws_vpc_endpoint.amp.dns_entry[0].dns_name}/"
   }
 }
 
