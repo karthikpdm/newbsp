@@ -33,11 +33,18 @@ provider "aws" {
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
-# providers.tf
+# FIXED: Add the missing EKS cluster data source
+data "aws_eks_cluster" "bsp_eks" {
+  name = aws_eks_cluster.main.name
+  depends_on = [aws_eks_cluster.main]
+}
+
 # EKS cluster authentication data source
 data "aws_eks_cluster_auth" "bsp_eks" {
   name = aws_eks_cluster.main.name
+  depends_on = [aws_eks_cluster.main]
 }
+
 
 # Kubernetes provider configuration
 provider "kubernetes" {
