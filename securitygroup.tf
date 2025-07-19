@@ -2,7 +2,7 @@
 
 # EKS Cluster Security Group
 resource "aws_security_group" "eks_cluster" {
-  name        = "bsp-eks-clusters-sg"
+  name        = "bsp-eks-clusters1-sg"
   description = "Security group for EKS cluster control plane"
   vpc_id      = data.aws_vpc.existing.id
 
