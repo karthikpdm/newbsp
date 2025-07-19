@@ -1,5 +1,5 @@
-# monitoring-fixed-no-istio.tf
-# Fixed monitoring configuration without Istio injection issues
+# monitoring-fixed-vpc-endpoint.tf
+# Fixed monitoring configuration with VPC endpoint URL
 
 # 1. Create AWS Managed Prometheus (AMP) Workspace
 resource "aws_prometheus_workspace" "bsp_amp" {
@@ -13,7 +13,19 @@ resource "aws_prometheus_workspace" "bsp_amp" {
   }
 }
 
-# 2. IAM Role for Grafana with custom policy
+# 2. Get AMP VPC Endpoint details
+data "aws_vpc_endpoint" "amp" {
+  filter {
+    name   = "service-name"
+    values = ["com.amazonaws.us-east-1.aps-workspaces"]
+  }
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.existing.id]
+  }
+}
+
+# 3. IAM Role for Grafana with custom policy
 resource "aws_iam_role" "grafana_role" {
   name = "bsp-grafana-service-role"
 
@@ -36,7 +48,7 @@ resource "aws_iam_role" "grafana_role" {
   }
 }
 
-# 3. Custom policy for Grafana
+# 4. Custom policy for Grafana
 resource "aws_iam_policy" "grafana_custom_policy" {
   name        = "bsp-grafana-custom-policy"
   description = "Custom policy for AWS Managed Grafana"
@@ -74,7 +86,7 @@ resource "aws_iam_role_policy_attachment" "grafana_custom_policy" {
   role       = aws_iam_role.grafana_role.name
 }
 
-# 4. Policy for Prometheus access
+# 5. Policy for Prometheus access
 resource "aws_iam_policy" "grafana_prometheus_policy" {
   name        = "bsp-grafana-prometheus-policy"
   description = "Policy for Grafana to access Prometheus workspace"
@@ -103,7 +115,7 @@ resource "aws_iam_role_policy_attachment" "grafana_prometheus_policy" {
   role       = aws_iam_role.grafana_role.name
 }
 
-# 5. Create AWS Managed Grafana Workspace
+# 6. Create AWS Managed Grafana Workspace
 resource "aws_grafana_workspace" "bsp_grafana" {
   account_access_type      = "CURRENT_ACCOUNT"
   authentication_providers = ["AWS_SSO"]
@@ -127,27 +139,7 @@ resource "aws_grafana_workspace" "bsp_grafana" {
   ]
 }
 
-# 6. Update monitoring namespace to DISABLE Istio injection
-# resource "kubernetes_labels" "monitoring_namespace_labels" {
-#   api_version = "v1"
-#   kind        = "Namespace"
-#   metadata {
-#     name = "monitoring"
-#   }
-#   labels = {
-#     "istio-injection" = "disabled"  # DISABLE Istio injection for monitoring
-#     "environment"     = "poc"
-#     "component"       = "monitoring"
-#     "managed-by"      = "terraform"
-#   }
-
-#   depends_on = [
-#     aws_eks_cluster.main,
-#     data.aws_eks_cluster_auth.bsp_eks
-#   ]
-# }
-
-# Create monitoring namespace first
+# 7. Create monitoring namespace first
 resource "kubernetes_namespace" "monitoring" {
   metadata {
     name = "monitoring"
@@ -165,7 +157,7 @@ resource "kubernetes_namespace" "monitoring" {
   ]
 }
 
-# 7. IAM Role for Prometheus Service Account (IRSA)
+# 8. IAM Role for Prometheus Service Account (IRSA)
 resource "aws_iam_role" "prometheus_role" {
   name = "bsp-prometheus-service-role"
 
@@ -189,7 +181,7 @@ resource "aws_iam_role" "prometheus_role" {
   })
 }
 
-# 8. Policy for Prometheus to write to AMP
+# 9. Policy for Prometheus to write to AMP
 resource "aws_iam_policy" "prometheus_policy" {
   name        = "bsp-prometheus-amp-policy"
   description = "Policy for Prometheus to write metrics to AMP"
@@ -217,7 +209,7 @@ resource "aws_iam_role_policy_attachment" "prometheus_policy" {
   role       = aws_iam_role.prometheus_role.name
 }
 
-# 9. Create Kubernetes Service Account for Prometheus
+# 10. Create Kubernetes Service Account for Prometheus
 resource "kubernetes_service_account" "prometheus" {
   metadata {
     name      = "prometheus-server"
@@ -227,39 +219,14 @@ resource "kubernetes_service_account" "prometheus" {
     }
   }
 
-  depends_on = [
-    kubernetes_namespace.monitoring  # Add this dependency
-  ]
+  depends_on = [kubernetes_namespace.monitoring]
 }
 
-# 10. Clean up existing failed releases first
-resource "null_resource" "cleanup_failed_releases" {
-  provisioner "local-exec" {
-    command = <<-EOT
-      # Remove failed prometheus releases
-      helm uninstall prometheus -n monitoring --ignore-not-found
-      helm uninstall prometheus-stack -n monitoring --ignore-not-found
-      
-      # Wait a bit for cleanup
-      sleep 10
-      
-      # Clean up stuck pods
-      kubectl delete pods --all -n monitoring --grace-period=0 --force --ignore-not-found
-      
-      # Wait for cleanup
-      sleep 5
-    EOT
-  }
-depends_on = [
-    kubernetes_namespace.monitoring  # Add this dependency
-  ]
-}
-
-# 11. Deploy Lightweight Prometheus without the problematic kube-prometheus-stack
+# 11. Deploy Prometheus with VPC endpoint URL
 resource "helm_release" "prometheus_simple" {
   name       = "prometheus-simple"
   repository = "https://prometheus-community.github.io/helm-charts"
-  chart      = "prometheus"  # Simple prometheus chart
+  chart      = "prometheus"
   namespace  = "monitoring"
   version    = "25.8.0"
 
@@ -275,17 +242,23 @@ resource "helm_release" "prometheus_simple" {
       
       # Prometheus server configuration
       server = {
-        # Remote write to AMP
+        # Remote write to AMP using VPC endpoint
         configMapOverrides = {
           "prometheus.yml" = <<-EOF
             global:
               scrape_interval: 15s
               evaluation_interval: 15s
+              external_labels:
+                cluster: "${aws_eks_cluster.main.name}"
             
             remote_write:
-              - url: ${aws_prometheus_workspace.bsp_amp.prometheus_endpoint}api/v1/remote_write
+              - url: https://${data.aws_vpc_endpoint.amp.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.bsp_amp.id}/api/v1/remote_write
                 sigv4:
                   region: ${data.aws_region.current.name}
+                write_relabel_configs:
+                  - source_labels: [__name__]
+                    regex: "prometheus_.*|up"
+                    action: drop
             
             scrape_configs:
               - job_name: 'prometheus'
@@ -300,12 +273,31 @@ resource "helm_release" "prometheus_simple" {
                     regex: '(.*):10250'
                     target_label: __address__
                     replacement: '$1:9100'
+                  - source_labels: [__meta_kubernetes_node_name]
+                    target_label: instance
               
               - job_name: 'kubernetes-pods'
                 kubernetes_sd_configs:
                   - role: pod
                 relabel_configs:
                   - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+                    action: keep
+                    regex: true
+                  - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+                    action: replace
+                    target_label: __metrics_path__
+                    regex: (.+)
+                  - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+                    action: replace
+                    regex: ([^:]+)(?::\d+)?;(\d+)
+                    replacement: $1:$2
+                    target_label: __address__
+              
+              - job_name: 'kubernetes-services'
+                kubernetes_sd_configs:
+                  - role: service
+                relabel_configs:
+                  - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
                     action: keep
                     regex: true
           EOF
@@ -363,7 +355,17 @@ resource "helm_release" "prometheus_simple" {
       }
       
       kubeStateMetrics = {
-        enabled = false  # Disable for now
+        enabled = true
+        resources = {
+          limits = {
+            cpu    = "100m"
+            memory = "128Mi"
+          }
+          requests = {
+            cpu    = "50m"
+            memory = "64Mi"
+          }
+        }
       }
     })
   ]
@@ -372,9 +374,9 @@ resource "helm_release" "prometheus_simple" {
   timeout = 300
 
   depends_on = [
-    null_resource.cleanup_failed_releases,
     kubernetes_service_account.prometheus,
-    aws_iam_role_policy_attachment.prometheus_policy
+    aws_iam_role_policy_attachment.prometheus_policy,
+    data.aws_vpc_endpoint.amp
   ]
 }
 
@@ -386,11 +388,16 @@ output "monitoring_info" {
       id                  = aws_prometheus_workspace.bsp_amp.id
       arn                 = aws_prometheus_workspace.bsp_amp.arn
       prometheus_endpoint = aws_prometheus_workspace.bsp_amp.prometheus_endpoint
+      vpc_endpoint_url    = "https://${data.aws_vpc_endpoint.amp.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.bsp_amp.id}/"
     }
     grafana_workspace = {
       id       = aws_grafana_workspace.bsp_grafana.id
       arn      = aws_grafana_workspace.bsp_grafana.arn
       endpoint = aws_grafana_workspace.bsp_grafana.endpoint
+    }
+    vpc_endpoint = {
+      id       = data.aws_vpc_endpoint.amp.id
+      dns_name = data.aws_vpc_endpoint.amp.dns_entry[0].dns_name
     }
   }
 }
@@ -403,14 +410,17 @@ output "monitoring_verification_commands" {
     port_forward_prometheus = "kubectl port-forward -n monitoring svc/prometheus-simple-server 9090:80"
     check_helm_releases = "helm list -n monitoring"
     check_namespace_labels = "kubectl get namespace monitoring --show-labels"
+    check_prometheus_config = "kubectl get configmap prometheus-simple-server -n monitoring -o yaml | grep -A 10 remote_write"
+    test_amp_connectivity = "kubectl exec -n monitoring deployment/prometheus-simple-server -- curl -s -o /dev/null -w '%{http_code}' https://${data.aws_vpc_endpoint.amp.dns_entry[0].dns_name}/"
   }
 }
 
-output "cleanup_commands" {
-  description = "Manual cleanup commands if needed"
+output "amp_connection_details" {
+  description = "AMP connection details for verification"
   value = {
-    remove_failed_releases = "helm uninstall prometheus prometheus-stack -n monitoring --ignore-not-found"
-    restart_stuck_pods = "kubectl delete pods --all -n monitoring --grace-period=0 --force"
-    check_istio_injection = "kubectl get namespace monitoring --show-labels | grep istio-injection"
+    workspace_id = aws_prometheus_workspace.bsp_amp.id
+    vpc_endpoint_dns = data.aws_vpc_endpoint.amp.dns_entry[0].dns_name
+    remote_write_url = "https://${data.aws_vpc_endpoint.amp.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.bsp_amp.id}/api/v1/remote_write"
+    grafana_data_source_url = "https://${data.aws_vpc_endpoint.amp.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.bsp_amp.id}/"
   }
 }
