@@ -227,7 +227,9 @@ resource "kubernetes_service_account" "prometheus" {
     }
   }
 
-  depends_on = [kubernetes_labels.monitoring_namespace_labels]
+  depends_on = [
+    kubernetes_namespace.monitoring  # Add this dependency
+  ]
 }
 
 # 10. Clean up existing failed releases first
@@ -248,8 +250,9 @@ resource "null_resource" "cleanup_failed_releases" {
       sleep 5
     EOT
   }
-
-  depends_on = [kubernetes_labels.monitoring_namespace_labels]
+depends_on = [
+    kubernetes_namespace.monitoring  # Add this dependency
+  ]
 }
 
 # 11. Deploy Lightweight Prometheus without the problematic kube-prometheus-stack
