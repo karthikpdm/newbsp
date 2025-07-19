@@ -1,7 +1,8 @@
-# File: security-groups.tf - Fixed version
+# security-groups.tf - Fixed version
+
 # EKS Cluster Security Group
 resource "aws_security_group" "eks_cluster" {
-  name        = "bsp-eks-clusters-sg"
+  name        = "bsp-eks-cluster-sg"
   description = "Security group for EKS cluster control plane"
   vpc_id      = data.aws_vpc.existing.id
 
@@ -23,6 +24,8 @@ resource "aws_security_group" "eks_cluster" {
 
   tags = {
     Name = "bsp-eks-cluster-sg"
+    Environment = "poc"
+    Project = "bsp"
   }
 }
 
@@ -70,6 +73,8 @@ resource "aws_security_group" "eks_nodes" {
 
   tags = {
     Name = "bsp-eks-nodes-sg"
+    Environment = "poc"
+    Project = "bsp"
   }
 }
 
@@ -82,4 +87,61 @@ resource "aws_security_group_rule" "cluster_to_nodes" {
   source_security_group_id = aws_security_group.eks_nodes.id
   security_group_id        = aws_security_group.eks_cluster.id
   description              = "Allow all traffic from nodes to cluster"
+}
+
+# FIXED: Enhanced Security Group for VPC Endpoints
+resource "aws_security_group" "vpc_endpoints" {
+  name_prefix = "vpc-endpoints-"
+  vpc_id      = data.aws_vpc.existing.id
+  description = "Security group for VPC endpoints"
+
+  # HTTPS from VPC CIDR
+  ingress {
+    description = "HTTPS from VPC"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [data.aws_vpc.existing.cidr_block]
+  }
+
+  # HTTPS from EKS cluster security group
+  ingress {
+    description     = "HTTPS from EKS cluster"
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    security_groups = [aws_security_group.eks_cluster.id]
+  }
+
+  # HTTPS from EKS nodes security group
+  ingress {
+    description     = "HTTPS from EKS nodes"
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    security_groups = [aws_security_group.eks_nodes.id]
+  }
+
+  # HTTP from VPC (some services might need this)
+  ingress {
+    description = "HTTP from VPC"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = [data.aws_vpc.existing.cidr_block]
+  }
+
+  egress {
+    description = "All outbound traffic"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name        = "vpc-endpoints-sg"
+    Environment = "poc"
+    Project     = "bsp"
+  }
 }

@@ -1,5 +1,5 @@
-# monitoring-fixed-vpc-endpoint.tf
-# Fixed monitoring configuration with VPC endpoint URL
+# monitoring-fixed.tf
+# Complete fixed monitoring configuration
 
 # 1. Create AWS Managed Prometheus (AMP) Workspace
 resource "aws_prometheus_workspace" "bsp_amp" {
@@ -13,7 +13,7 @@ resource "aws_prometheus_workspace" "bsp_amp" {
   }
 }
 
-# 2. IAM Role for Grafana with custom policy
+# 2. FIXED: Enhanced IAM Role for Grafana
 resource "aws_iam_role" "grafana_role" {
   name = "bsp-grafana-service-role"
 
@@ -33,13 +33,14 @@ resource "aws_iam_role" "grafana_role" {
   tags = {
     Name        = "bsp-grafana-service-role"
     Environment = "poc"
+    Project     = "bsp"
   }
 }
 
-# 3. Custom policy for Grafana
-resource "aws_iam_policy" "grafana_custom_policy" {
-  name        = "bsp-grafana-custom-policy"
-  description = "Custom policy for AWS Managed Grafana"
+# 3. FIXED: Comprehensive policy for Grafana with all required AMP permissions
+resource "aws_iam_policy" "grafana_comprehensive_policy" {
+  name        = "bsp-grafana-comprehensive-policy"
+  description = "Comprehensive policy for AWS Managed Grafana with AMP access"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -47,50 +48,39 @@ resource "aws_iam_policy" "grafana_custom_policy" {
       {
         Effect = "Allow"
         Action = [
+          # Prometheus permissions - FIXED: Added all required actions
+          "aps:ListWorkspaces",
+          "aps:DescribeWorkspace", 
+          "aps:QueryMetrics",
+          "aps:GetLabels",
+          "aps:GetSeries",
+          "aps:GetMetricMetadata",
+          # CloudWatch permissions
           "cloudwatch:DescribeAlarmsForMetric",
-          "cloudwatch:DescribeAlarmHistory",
+          "cloudwatch:DescribeAlarmHistory", 
           "cloudwatch:DescribeAlarms",
           "cloudwatch:ListMetrics",
           "cloudwatch:GetMetricStatistics",
           "cloudwatch:GetMetricData",
+          # CloudWatch Logs permissions
           "logs:DescribeLogGroups",
           "logs:DescribeLogStreams",
           "logs:GetLogEvents",
           "logs:StartQuery",
-          "logs:StopQuery",
+          "logs:StopQuery", 
           "logs:GetQueryResults",
+          # EC2 permissions
           "ec2:DescribeTags",
           "ec2:DescribeInstances",
           "ec2:DescribeRegions"
         ]
         Resource = "*"
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "grafana_custom_policy" {
-  policy_arn = aws_iam_policy.grafana_custom_policy.arn
-  role       = aws_iam_role.grafana_role.name
-}
-
-# 4. Policy for Prometheus access (FIXED - includes all necessary permissions)
-resource "aws_iam_policy" "grafana_prometheus_policy" {
-  name        = "bsp-grafana-prometheus-policy"
-  description = "Policy for Grafana to access Prometheus workspace"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
+      },
       {
+        # FIXED: Specific permission for the AMP workspace
         Effect = "Allow"
         Action = [
-          "aps:ListWorkspaces",
-          "aps:DescribeWorkspace",
-          "aps:QueryMetrics",
-          "aps:GetLabels",
-          "aps:GetSeries",
-          "aps:GetMetricMetadata"
+          "aps:*"
         ]
         Resource = aws_prometheus_workspace.bsp_amp.arn
       }
@@ -98,12 +88,12 @@ resource "aws_iam_policy" "grafana_prometheus_policy" {
   })
 }
 
-resource "aws_iam_role_policy_attachment" "grafana_prometheus_policy" {
-  policy_arn = aws_iam_policy.grafana_prometheus_policy.arn
+resource "aws_iam_role_policy_attachment" "grafana_comprehensive_policy" {
+  policy_arn = aws_iam_policy.grafana_comprehensive_policy.arn
   role       = aws_iam_role.grafana_role.name
 }
 
-# 5. Create AWS Managed Grafana Workspace
+# 4. FIXED: Create AWS Managed Grafana Workspace with proper configuration
 resource "aws_grafana_workspace" "bsp_grafana" {
   account_access_type      = "CURRENT_ACCOUNT"
   authentication_providers = ["AWS_SSO"]
@@ -128,18 +118,19 @@ resource "aws_grafana_workspace" "bsp_grafana" {
   }
 
   depends_on = [
-    aws_iam_role_policy_attachment.grafana_custom_policy,
-    aws_iam_role_policy_attachment.grafana_prometheus_policy,
-    aws_vpc_endpoint.aps_workspaces
+    aws_iam_role_policy_attachment.grafana_comprehensive_policy,
+    aws_vpc_endpoint.aps_workspaces,
+    aws_vpc_endpoint.grafana,
+    aws_vpc_endpoint.grafana_workspace
   ]
 }
 
-# 6. Create monitoring namespace first
+# 5. Create monitoring namespace
 resource "kubernetes_namespace" "monitoring" {
   metadata {
     name = "monitoring"
     labels = {
-      "istio-injection" = "disabled"  # Disable Istio for monitoring
+      "istio-injection" = "disabled"
       "environment"     = "poc"
       "component"       = "monitoring"
       "managed-by"      = "terraform"
@@ -147,12 +138,11 @@ resource "kubernetes_namespace" "monitoring" {
   }
 
   depends_on = [
-    aws_eks_cluster.main,
-    data.aws_eks_cluster_auth.bsp_eks
+    aws_eks_cluster.main
   ]
 }
 
-# 7. IAM Role for Prometheus Service Account (IRSA)
+# 6. FIXED: IAM Role for Prometheus Service Account (IRSA) with enhanced permissions
 resource "aws_iam_role" "prometheus_role" {
   name = "bsp-prometheus-service-role"
 
@@ -174,12 +164,18 @@ resource "aws_iam_role" "prometheus_role" {
       }
     ]
   })
+
+  tags = {
+    Name        = "bsp-prometheus-service-role"
+    Environment = "poc"
+    Project     = "bsp"
+  }
 }
 
-# 8. Policy for Prometheus to write to AMP
+# 7. FIXED: Enhanced policy for Prometheus with all required AMP permissions
 resource "aws_iam_policy" "prometheus_policy" {
   name        = "bsp-prometheus-amp-policy"
-  description = "Policy for Prometheus to write metrics to AMP"
+  description = "Enhanced policy for Prometheus to interact with AMP"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -191,7 +187,9 @@ resource "aws_iam_policy" "prometheus_policy" {
           "aps:QueryMetrics",
           "aps:GetSeries",
           "aps:GetLabels",
-          "aps:GetMetricMetadata"
+          "aps:GetMetricMetadata",
+          "aps:ListWorkspaces",
+          "aps:DescribeWorkspace"
         ]
         Resource = aws_prometheus_workspace.bsp_amp.arn
       }
@@ -204,7 +202,7 @@ resource "aws_iam_role_policy_attachment" "prometheus_policy" {
   role       = aws_iam_role.prometheus_role.name
 }
 
-# 9. Create Kubernetes Service Account for Prometheus
+# 8. Create Kubernetes Service Account for Prometheus
 resource "kubernetes_service_account" "prometheus" {
   metadata {
     name      = "prometheus-server"
@@ -217,7 +215,7 @@ resource "kubernetes_service_account" "prometheus" {
   depends_on = [kubernetes_namespace.monitoring]
 }
 
-# 10. Deploy basic Helm release first
+# 9. Deploy Prometheus using Helm
 resource "helm_release" "prometheus_simple" {
   name       = "prometheus-simple"
   repository = "https://prometheus-community.github.io/helm-charts"
@@ -244,10 +242,6 @@ resource "helm_release" "prometheus_simple" {
             cpu    = "250m"
             memory = "512Mi"
           }
-        }
-        
-        nodeSelector = {
-          "node-role" = "osdu-backend"
         }
         
         persistentVolume = {
@@ -306,13 +300,13 @@ resource "helm_release" "prometheus_simple" {
   ]
 }
 
-# 11. Wait for deployment to be ready
+# 10. Wait for Helm deployment
 resource "time_sleep" "wait_for_helm" {
   depends_on = [helm_release.prometheus_simple]
   create_duration = "60s"
 }
 
-# 12. FIXED: Create ConfigMap with VPC endpoint URL instead of public endpoint
+# 11. FIXED: Update Prometheus configuration with correct VPC endpoint URL
 resource "kubernetes_config_map_v1_data" "prometheus_config_patch" {
   depends_on = [time_sleep.wait_for_helm]
 
@@ -330,7 +324,7 @@ resource "kubernetes_config_map_v1_data" "prometheus_config_patch" {
         }
       }
       
-      # FIXED: Use VPC endpoint instead of public endpoint
+      # FIXED: Use VPC endpoint DNS name instead of public endpoint
       remote_write = [{
         url = "https://${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.bsp_amp.id}/api/v1/remote_write"
         sigv4 = {
@@ -372,10 +366,10 @@ resource "kubernetes_config_map_v1_data" "prometheus_config_patch" {
     })
   }
 
-  force = true  # This ensures it overwrites the existing data
+  force = true
 }
 
-# 13. Restart Prometheus to pick up the new configuration
+# 12. Restart Prometheus to apply new configuration
 resource "null_resource" "restart_prometheus" {
   depends_on = [kubernetes_config_map_v1_data.prometheus_config_patch]
 
@@ -388,12 +382,12 @@ resource "null_resource" "restart_prometheus" {
   }
 }
 
-# 14. Wait for rollout to complete
+# 13. Wait for rollout to complete
 resource "null_resource" "wait_for_restart" {
   depends_on = [null_resource.restart_prometheus]
 
   provisioner "local-exec" {
-    command = "kubectl rollout status deployment/prometheus-simple-server -n monitoring --timeout=180s"
+    command = "kubectl rollout status deployment/prometheus-simple-server -n monitoring --timeout=300s"
   }
 
   triggers = {
@@ -401,29 +395,26 @@ resource "null_resource" "wait_for_restart" {
   }
 }
 
-# 15. Simple validation
+# 14. Validation and setup completion
 resource "null_resource" "validate_setup" {
   depends_on = [null_resource.wait_for_restart]
 
   provisioner "local-exec" {
     command = <<-EOT
-      echo "🎉 Prometheus setup complete!"
+      echo "🎉 Fixed Prometheus setup complete!"
       echo ""
-      echo "✅ Checking ConfigMap:"
-      kubectl get configmap prometheus-simple-server -n monitoring -o yaml | grep -A 3 "remote_write"
+      echo "✅ VPC Endpoint DNS: ${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}"
+      echo "✅ AMP Workspace ID: ${aws_prometheus_workspace.bsp_amp.id}"
+      echo "✅ Remote Write URL: https://${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.bsp_amp.id}/api/v1/remote_write"
       echo ""
-      echo "✅ Checking pod status:"
-      kubectl get pods -n monitoring -l "app.kubernetes.io/name=prometheus,app.kubernetes.io/component=server"
+      echo "🔍 To test DNS resolution:"
+      echo "kubectl exec -n monitoring deployment/prometheus-simple-server -c prometheus-server -- nslookup ${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}"
       echo ""
-      echo "🔍 To access Prometheus UI:"
-      echo "kubectl port-forward -n monitoring svc/prometheus-simple-server 9090:80"
-      echo "Then open: http://localhost:9090"
+      echo "🔍 To test query access:"
+      echo "kubectl exec -n monitoring deployment/prometheus-simple-server -c prometheus-server -- wget -qO- 'https://${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.bsp_amp.id}/api/v1/query?query=up'"
       echo ""
-      echo "📊 Check remote write status at: Status → Remote Write"
-      echo ""
-      echo "🔗 Grafana URL: https://${aws_grafana_workspace.bsp_grafana.endpoint}"
-      echo "📈 Use this data source URL in Grafana:"
-      echo "https://${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.bsp_amp.id}/"
+      echo "📊 Grafana URL: https://${aws_grafana_workspace.bsp_grafana.endpoint}"
+      echo "📈 Grafana Data Source URL: https://${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.bsp_amp.id}/"
     EOT
   }
 
@@ -432,15 +423,16 @@ resource "null_resource" "validate_setup" {
   }
 }
 
-# 16. Outputs
-output "monitoring_info" {
-  description = "Monitoring infrastructure information"
+# 15. Outputs
+output "monitoring_info_fixed" {
+  description = "Fixed monitoring infrastructure information"
   value = {
     amp_workspace = {
       id                  = aws_prometheus_workspace.bsp_amp.id
       arn                 = aws_prometheus_workspace.bsp_amp.arn
       prometheus_endpoint = aws_prometheus_workspace.bsp_amp.prometheus_endpoint
       vpc_endpoint_url    = "https://${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.bsp_amp.id}/"
+      remote_write_url    = "https://${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.bsp_amp.id}/api/v1/remote_write"
     }
     grafana_workspace = {
       id       = aws_grafana_workspace.bsp_grafana.id
@@ -454,25 +446,15 @@ output "monitoring_info" {
   }
 }
 
-output "monitoring_verification_commands" {
-  description = "Commands to verify monitoring setup"
+output "troubleshooting_commands" {
+  description = "Commands to verify the fixed setup"
   value = {
-    check_prometheus_pods = "kubectl get pods -n monitoring"
-    check_prometheus_service = "kubectl get svc -n monitoring"
+    test_dns_resolution = "kubectl exec -n monitoring deployment/prometheus-simple-server -c prometheus-server -- nslookup ${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}"
+    test_vpc_endpoint_connectivity = "kubectl exec -n monitoring deployment/prometheus-simple-server -c prometheus-server -- wget -qO- 'https://${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/'"
+    test_amp_query = "kubectl exec -n monitoring deployment/prometheus-simple-server -c prometheus-server -- wget -qO- 'https://${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.bsp_amp.id}/api/v1/query?query=up'"
+    check_prometheus_remote_write = "kubectl exec -n monitoring deployment/prometheus-simple-server -c prometheus-server -- wget -qO- 'http://localhost:9090/api/v1/query?query=prometheus_remote_storage_samples_total'"
+    restart_prometheus = "kubectl rollout restart deployment/prometheus-simple-server -n monitoring"
+    check_grafana_workspace = "aws grafana describe-workspace --workspace-id ${aws_grafana_workspace.bsp_grafana.id}"
     port_forward_prometheus = "kubectl port-forward -n monitoring svc/prometheus-simple-server 9090:80"
-    check_helm_releases = "helm list -n monitoring"
-    check_namespace_labels = "kubectl get namespace monitoring --show-labels"
-    check_prometheus_config = "kubectl get configmap prometheus-simple-server -n monitoring -o yaml | grep -A 10 remote_write"
-    test_amp_connectivity = "kubectl exec -n monitoring deployment/prometheus-simple-server -- curl -s -o /dev/null -w '%%{http_code}' https://${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/"
-  }
-}
-
-output "amp_connection_details" {
-  description = "AMP connection details for verification"
-  value = {
-    workspace_id = aws_prometheus_workspace.bsp_amp.id
-    vpc_endpoint_dns = aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name
-    remote_write_url = "https://${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.bsp_amp.id}/api/v1/remote_write"
-    grafana_data_source_url = "https://${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.bsp_amp.id}/"
   }
 }
