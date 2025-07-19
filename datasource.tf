@@ -25,10 +25,10 @@ data "aws_subnet" "private_az2" {
 }
 
 # Get current AWS region
-data "aws_region" "current" {}
+# data "aws_region" "current" {}
 
-# Get current AWS caller identity
-data "aws_caller_identity" "current" {}
+# # Get current AWS caller identity
+# data "aws_caller_identity" "current" {}
 
 # FIXED: Security Group for VPC Endpoints (moved here for proper dependency)
 # This was originally in your vpc-endpoints file but had issues
