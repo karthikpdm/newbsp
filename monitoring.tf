@@ -243,90 +243,92 @@ resource "helm_release" "prometheus_simple" {
       
       # Prometheus server configuration
       server = {
-        # Use the proper server config section
-        config = {
-          global = {
-            scrape_interval = "15s"
-            evaluation_interval = "15s"
-            external_labels = {
-              cluster = aws_eks_cluster.main.name
-            }
-          }
-          
-          remote_write = [
-            {
-              url = "${aws_prometheus_workspace.bsp_amp.prometheus_endpoint}api/v1/remote_write"
-              sigv4 = {
-                region = data.aws_region.current.name
+        # Use configMapOverrides instead of config (this actually works)
+        configMapOverrides = {
+          "prometheus.yml" = yamlencode({
+            global = {
+              scrape_interval = "15s"
+              evaluation_interval = "15s"
+              external_labels = {
+                cluster = aws_eks_cluster.main.name
               }
-              write_relabel_configs = [
-                {
-                  source_labels = ["__name__"]
-                  regex = "prometheus_.*|up"
-                  action = "drop"
-                }
-              ]
             }
-          ]
-          
-          scrape_configs = [
-            {
-              job_name = "prometheus"
-              static_configs = [
-                {
-                  targets = ["localhost:9090"]
+            
+            remote_write = [
+              {
+                url = "${aws_prometheus_workspace.bsp_amp.prometheus_endpoint}api/v1/remote_write"
+                sigv4 = {
+                  region = data.aws_region.current.name
                 }
-              ]
-            },
-            {
-              job_name = "kubernetes-nodes"
-              kubernetes_sd_configs = [
-                {
-                  role = "node"
-                }
-              ]
-              relabel_configs = [
-                {
-                  source_labels = ["__address__"]
-                  regex = "(.*):10250"
-                  target_label = "__address__"
-                  replacement = "$1:9100"
-                },
-                {
-                  source_labels = ["__meta_kubernetes_node_name"]
-                  target_label = "instance"
-                }
-              ]
-            },
-            {
-              job_name = "kubernetes-pods"
-              kubernetes_sd_configs = [
-                {
-                  role = "pod"
-                }
-              ]
-              relabel_configs = [
-                {
-                  source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scrape"]
-                  action = "keep"
-                  regex = true
-                },
-                {
-                  source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_path"]
-                  action = "replace"
-                  target_label = "__metrics_path__"
-                  regex = "(.+)"
-                },
-                {
-                  source_labels = ["__address__", "__meta_kubernetes_pod_annotation_prometheus_io_port"]
-                  action = "replace"
-                  regex = "([^:]+)(?::\\d+)?;(\\d+)"
-                  replacement = "$1:$2"
-                  target_label = "__address__"
-                }
-              ]
-            }
-          ]
+                write_relabel_configs = [
+                  {
+                    source_labels = ["__name__"]
+                    regex = "prometheus_.*|up"
+                    action = "drop"
+                  }
+                ]
+              }
+            ]
+            
+            scrape_configs = [
+              {
+                job_name = "prometheus"
+                static_configs = [
+                  {
+                    targets = ["localhost:9090"]
+                  }
+                ]
+              },
+              {
+                job_name = "kubernetes-nodes"
+                kubernetes_sd_configs = [
+                  {
+                    role = "node"
+                  }
+                ]
+                relabel_configs = [
+                  {
+                    source_labels = ["__address__"]
+                    regex = "(.*):10250"
+                    target_label = "__address__"
+                    replacement = "$1:9100"
+                  },
+                  {
+                    source_labels = ["__meta_kubernetes_node_name"]
+                    target_label = "instance"
+                  }
+                ]
+              },
+              {
+                job_name = "kubernetes-pods"
+                kubernetes_sd_configs = [
+                  {
+                    role = "pod"
+                  }
+                ]
+                relabel_configs = [
+                  {
+                    source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scrape"]
+                    action = "keep"
+                    regex = "true"
+                  },
+                  {
+                    source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_path"]
+                    action = "replace"
+                    target_label = "__metrics_path__"
+                    regex = "(.+)"
+                  },
+                  {
+                    source_labels = ["__address__", "__meta_kubernetes_pod_annotation_prometheus_io_port"]
+                    action = "replace"
+                    regex = "([^:]+)(?::\\d+)?;(\\d+)"
+                    replacement = "$1:$2"
+                    target_label = "__address__"
+                  }
+                ]
+              }
+            ]
+          })
         }
         
         # Resource limits
@@ -401,8 +403,7 @@ resource "helm_release" "prometheus_simple" {
 
   depends_on = [
     kubernetes_service_account.prometheus,
-    aws_iam_role_policy_attachment.prometheus_policy,
-    data.aws_vpc_endpoint.amp
+    aws_iam_role_policy_attachment.prometheus_policy
   ]
 }
 # 12. Outputs
