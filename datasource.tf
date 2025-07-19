@@ -165,6 +165,102 @@ resource "aws_vpc_endpoint" "sts" {
 }
 
 
+#  1. Grafana Service VPC Endpoint (Primary)
+resource "aws_vpc_endpoint" "grafana" {
+  vpc_id              = data.aws_vpc.existing.id
+  service_name        = "com.amazonaws.${data.aws_region.current.name}.grafana"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [data.aws_subnet.private_az1.id, data.aws_subnet.private_az2.id]
+  security_group_ids  = [aws_security_group.grafana_vpc_endpoint.id]
+  
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = "*"
+        Action = [
+          "grafana:*"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = {
+    Name        = "grafana-vpc-endpoint"
+    Environment = "poc"
+    Project     = "bsp"
+  }
+}
+
+# 2. Grafana Workspace VPC Endpoint (for workspace access)
+resource "aws_vpc_endpoint" "grafana_workspace" {
+  vpc_id              = data.aws_vpc.existing.id
+  service_name        = "com.amazonaws.${data.aws_region.current.name}.grafana-workspace"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [data.aws_subnet.private_az1.id, data.aws_subnet.private_az2.id]
+  security_group_ids  = [aws_security_group.grafana_vpc_endpoint.id]
+  
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = "*"
+        Action = [
+          "grafana:*"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = {
+    Name        = "grafana-workspace-vpc-endpoint"
+    Environment = "poc"
+    Project     = "bsp"
+  }
+}
+
+# 3. Security Group for Grafana VPC Endpoints
+resource "aws_security_group" "grafana_vpc_endpoint" {
+  name_prefix = "grafana-vpc-endpoint-"
+  vpc_id      = data.aws_vpc.existing.id
+  description = "Security group for Grafana VPC endpoints"
+
+  ingress {
+    description = "HTTPS from VPC"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [data.aws_vpc.existing.cidr_block]
+  }
+
+  ingress {
+    description = "HTTP from VPC"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = [data.aws_vpc.existing.cidr_block]
+  }
+
+  egress {
+    description = "All outbound traffic"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name        = "grafana-vpc-endpoint-sg"
+    Environment = "poc"
+    Project     = "bsp"
+  }
+}
+
+
 # Outputs
 output "essential_vpc_endpoints" {
   description = "Essential VPC Endpoints for private EKS cluster"
