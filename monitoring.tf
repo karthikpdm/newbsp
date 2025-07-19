@@ -228,15 +228,28 @@ resource "kubernetes_service_account" "prometheus" {
 # First, let's delete the existing release and recreate it clean
 # Run this command first: helm uninstall prometheus-simple -n monitoring
 
+# First, let's delete the existing release and recreate it clean
+# Run this command first: helm uninstall prometheus-simple -n monitoring
+
 # Create our custom ConfigMap with the exact name Helm expects
 resource "kubernetes_config_map" "prometheus_server_config" {
   metadata {
     name      = "prometheus-simple-server"
     namespace = kubernetes_namespace.monitoring.metadata[0].name
+    
     labels = {
-      "app.kubernetes.io/component" = "server"
-      "app.kubernetes.io/instance"  = "prometheus-simple"
-      "app.kubernetes.io/name"      = "prometheus"
+      "app.kubernetes.io/component"  = "server"
+      "app.kubernetes.io/instance"   = "prometheus-simple"
+      "app.kubernetes.io/managed-by" = "Helm"
+      "app.kubernetes.io/name"       = "prometheus"
+      "app.kubernetes.io/part-of"    = "prometheus"
+      "app.kubernetes.io/version"    = "v2.48.0"
+      "helm.sh/chart"                = "prometheus-25.8.0"
+    }
+    
+    annotations = {
+      "meta.helm.sh/release-name"      = "prometheus-simple"
+      "meta.helm.sh/release-namespace" = "monitoring"
     }
   }
 
