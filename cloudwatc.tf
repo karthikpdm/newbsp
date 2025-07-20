@@ -98,6 +98,8 @@ resource "kubernetes_service_account" "fluent_bit" {
 # 5. FLUENT BIT CONFIGMAP - FIXED VARIABLES
 # ===================================
 
+#  Update your FluentBit ConfigMap to use pod names as stream names
+
 resource "kubernetes_config_map" "fluent_bit_config" {
   metadata {
     name      = "fluent-bit-config"
@@ -134,17 +136,6 @@ resource "kubernetes_config_map" "fluent_bit_config" {
           storage.type        filesystem
           Read_from_Head      $${READ_FROM_HEAD}
 
-      [INPUT]
-          Name                tail
-          Tag                 dataplane.systemd.*
-          Path                /var/log/journal
-          multiline.parser    docker, cri
-          DB                  /var/fluent-bit/state/flb_journal.db
-          Mem_Buf_Limit       25MB
-          Skip_Long_Lines     On
-          Refresh_Interval    10
-          Read_from_Head      $${READ_FROM_HEAD}
-
       [FILTER]
           Name                kubernetes
           Match               application.*
@@ -160,21 +151,18 @@ resource "kubernetes_config_map" "fluent_bit_config" {
           Kubelet_Port        10250
           Buffer_Size         0
 
+      # ADD CUSTOM FILTER TO SET STREAM NAME TO POD NAME
+      [FILTER]
+          Name                modify
+          Match               application.*
+          Add                 stream_name $${kubernetes_pod_name}
+
       [OUTPUT]
           Name                cloudwatch_logs
           Match               application.*
           region              $${AWS_REGION}
           log_group_name      /aws/containerinsights/$${CLUSTER_NAME}/application
-          log_stream_prefix   $${HOST_NAME}-
-          auto_create_group   On
-          extra_user_agent    container-insights
-
-      [OUTPUT]
-          Name                cloudwatch_logs
-          Match               dataplane.systemd.*
-          region              $${AWS_REGION}
-          log_group_name      /aws/containerinsights/$${CLUSTER_NAME}/dataplane
-          log_stream_prefix   $${HOST_NAME}-
+          log_stream_name     $${stream_name}
           auto_create_group   On
           extra_user_agent    container-insights
     EOF
@@ -197,7 +185,6 @@ resource "kubernetes_config_map" "fluent_bit_config" {
 
   depends_on = [kubernetes_namespace.amazon_cloudwatch]
 }
-
 # ===================================
 # 6. FLUENT BIT DAEMONSET
 # ===================================
