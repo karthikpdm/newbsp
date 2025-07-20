@@ -1,3 +1,6 @@
+# cloudwatch-logging.tf
+# Fixed CloudWatch Container Insights for EKS
+
 # ===================================
 # 1. IAM ROLE FOR FLUENT BIT
 # ===================================
@@ -71,6 +74,8 @@ resource "kubernetes_namespace" "amazon_cloudwatch" {
       name = "amazon-cloudwatch"
     }
   }
+
+  depends_on = [aws_eks_cluster.main]
 }
 
 # ===================================
@@ -90,7 +95,7 @@ resource "kubernetes_service_account" "fluent_bit" {
 }
 
 # ===================================
-# 5. FLUENT BIT CONFIGMAP
+# 5. FLUENT BIT CONFIGMAP - FIXED VARIABLES
 # ===================================
 
 resource "kubernetes_config_map" "fluent_bit_config" {
@@ -127,7 +132,7 @@ resource "kubernetes_config_map" "fluent_bit_config" {
           Refresh_Interval    10
           Rotate_Wait         30
           storage.type        filesystem
-          Read_from_Head      ${READ_FROM_HEAD}
+          Read_from_Head      $${READ_FROM_HEAD}
 
       [INPUT]
           Name                tail
@@ -138,7 +143,7 @@ resource "kubernetes_config_map" "fluent_bit_config" {
           Mem_Buf_Limit       25MB
           Skip_Long_Lines     On
           Refresh_Interval    10
-          Read_from_Head      ${READ_FROM_HEAD}
+          Read_from_Head      $${READ_FROM_HEAD}
 
       [FILTER]
           Name                kubernetes
@@ -158,18 +163,18 @@ resource "kubernetes_config_map" "fluent_bit_config" {
       [OUTPUT]
           Name                cloudwatch_logs
           Match               application.*
-          region              ${AWS_REGION}
-          log_group_name      /aws/containerinsights/${CLUSTER_NAME}/application
-          log_stream_prefix   ${HOST_NAME}-
+          region              $${AWS_REGION}
+          log_group_name      /aws/containerinsights/$${CLUSTER_NAME}/application
+          log_stream_prefix   $${HOST_NAME}-
           auto_create_group   On
           extra_user_agent    container-insights
 
       [OUTPUT]
           Name                cloudwatch_logs
           Match               dataplane.systemd.*
-          region              ${AWS_REGION}
-          log_group_name      /aws/containerinsights/${CLUSTER_NAME}/dataplane
-          log_stream_prefix   ${HOST_NAME}-
+          region              $${AWS_REGION}
+          log_group_name      /aws/containerinsights/$${CLUSTER_NAME}/dataplane
+          log_stream_prefix   $${HOST_NAME}-
           auto_create_group   On
           extra_user_agent    container-insights
     EOF
