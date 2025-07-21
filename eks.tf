@@ -9,10 +9,10 @@ resource "aws_eks_cluster" "main" {
     subnet_ids              = [data.aws_subnet.private_az1.id, data.aws_subnet.private_az2.id]
     security_group_ids      = [aws_security_group.eks_cluster.id]
     endpoint_private_access = true   # API server accessible from VPC
-    # endpoint_public_access  = true  # Changed to true for OIDC access
-    # public_access_cidrs     = ["0.0.0.0/0"]
-    endpoint_public_access  = false  # API server NOT accessible from internet
-    public_access_cidrs     = []     # Empty since public access is disabled
+    endpoint_public_access  = true  # Changed to true for OIDC access
+    public_access_cidrs     = ["0.0.0.0/0"]
+    # endpoint_public_access  = false  # API server NOT accessible from internet
+    # public_access_cidrs     = []     # Empty since public access is disabled
   }
 
   # Enable EKS Cluster logging - All log types for better observability

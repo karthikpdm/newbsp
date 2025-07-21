@@ -219,7 +219,8 @@ resource "aws_launch_template" "eks_nodes" {
   name_prefix   = "bsp-eks-cluster-node-"  # Hardcoded cluster name prefix
   image_id      = data.aws_ami.eks_worker.id
   instance_type = "t3.medium"              # Hardcoded instance type
-  key_name      = "bspnew"                 # Hardcoded key pair name
+  # key_name      = "bspnew"                 # Hardcoded key pair name
+  key_name      = "pwpoc"     
 
   vpc_security_group_ids = [aws_security_group.eks_nodes.id]
 
