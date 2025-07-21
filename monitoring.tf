@@ -142,8 +142,8 @@ locals {
         "storage.tsdb.wal-compression" = true
       }
       
-      # Custom Prometheus configuration
-      configMapOverrideName = "prometheus-config-override"
+      # FIXED: Remove the configMapOverrideName - let Helm manage it automatically
+      # configMapOverrideName = "prometheus-config-override"  # <-- REMOVE THIS LINE
     }
     
     # Enhanced scraping with custom configuration
@@ -182,7 +182,7 @@ locals {
               {
                 source_labels = ["__meta_kubernetes_service_name"]
                 action = "keep"
-                regex = "prometheus-node-exporter"
+                regex = "prometheus-prometheus-node-exporter"  # <-- FIXED: Added release name prefix
               }
             ]
           },
@@ -200,7 +200,7 @@ locals {
               {
                 source_labels = ["__meta_kubernetes_service_name"]
                 action = "keep"
-                regex = "prometheus-kube-state-metrics"
+                regex = "prometheus-kube-state-metrics"  # <-- Already correct
               }
             ]
           },
@@ -318,13 +318,23 @@ locals {
       }
     }
     
-    # Disable unnecessary components
+    # Disable unnecessary components for now
     alertmanager = {
       enabled = false
     }
     
     pushgateway = {
-      enabled = false
+      enabled = true  # Changed to true since it's showing in your helm status
+      resources = {
+        limits = {
+          cpu    = "200m"
+          memory = "256Mi"
+        }
+        requests = {
+          cpu    = "100m"
+          memory = "128Mi"
+        }
+      }
     }
   }
 }
@@ -343,7 +353,7 @@ resource "helm_release" "prometheus" {
   timeout = 600
 
   depends_on = [
-     kubernetes_namespace.prometheus_namespace,
+    kubernetes_namespace.prometheus_namespace,
     aws_iam_role_policy_attachment.prometheus_policy_attachment,
     aws_vpc_endpoint.aps_workspaces,
     aws_vpc_endpoint.sts,
