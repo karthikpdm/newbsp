@@ -178,7 +178,12 @@ resource "aws_eks_addon" "ebs_csi_driver" {
   depends_on = [
     aws_eks_cluster.main,
     aws_iam_role_policy_attachment.ebs_csi_driver_policy,
-    aws_iam_openid_connect_provider.eks_cluster
+    aws_iam_openid_connect_provider.eks_cluster,
+    # Add worker node dependencies
+    aws_instance.eks_node_istio_keycloak,
+    aws_instance.eks_node_backend,
+    aws_instance.eks_node_frontend,
+    aws_launch_template.eks_nodes
   ]
 
   tags = {
@@ -186,7 +191,6 @@ resource "aws_eks_addon" "ebs_csi_driver" {
     Environment = "poc"
   }
 }
-
 
 
 ##########################################################################################################################################################
