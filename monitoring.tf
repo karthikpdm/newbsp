@@ -1,39 +1,6 @@
-# Clean Prometheus setup based on AWS documentation
-# Following AWS guide: "Set up ingestion from a new Prometheus server using Helm"
-# This configuration avoids dependency cycles and conflicts
-
-# Data sources for existing infrastructure
-
-
-# Data source for existing EKS cluster
-data "aws_eks_cluster" "main" {
-  name = "bsp-eks-cluster11"
-}
-
-data "aws_eks_cluster_auth" "main" {
-  name = "bsp-eks-cluster11"
-}
-
-# Data source for existing OIDC provider
-data "aws_iam_openid_connect_provider" "eks_cluster" {
-  url = data.aws_eks_cluster.main.identity[0].oidc[0].issuer
-}
-
-# Data source for existing VPC endpoints security group
-data "aws_security_group" "vpc_endpoints" {
-  filter {
-    name   = "tag:Name" 
-    values = ["vpc-endpoints-sg"]
-  }
-}
-
-# Data source for existing VPC endpoint
-data "aws_vpc_endpoint" "aps_workspaces" {
-  filter {
-    name   = "tag:Name"
-    values = ["amp-vpc-endpoint"]
-  }
-}
+# prometheus-amp-setup.tf
+# Clean Prometheus setup with direct resource references
+# No data sources - direct references to existing resources
 
 # Step 1: Create AWS Managed Prometheus Workspace
 resource "aws_prometheus_workspace" "prometheus_workspace" {
@@ -47,7 +14,7 @@ resource "aws_prometheus_workspace" "prometheus_workspace" {
   }
 }
 
-# Step 3: Create IAM role for Prometheus service account (IRSA)
+# Step 2: Create IAM role for Prometheus service account (IRSA)
 resource "aws_iam_role" "prometheus_ingest_role" {
   name = "prometheus-amp-ingest-role"
 
@@ -58,12 +25,12 @@ resource "aws_iam_role" "prometheus_ingest_role" {
         Action = "sts:AssumeRoleWithWebIdentity"
         Effect = "Allow"
         Principal = {
-          Federated = data.aws_iam_openid_connect_provider.eks_cluster.arn
+          Federated = aws_iam_openid_connect_provider.eks_cluster.arn
         }
         Condition = {
           StringEquals = {
-            "${replace(data.aws_iam_openid_connect_provider.eks_cluster.url, "https://", "")}:sub" = "system:serviceaccount:prometheus:amp-iamproxy-ingest-service-account"
-            "${replace(data.aws_iam_openid_connect_provider.eks_cluster.url, "https://", "")}:aud" = "sts.amazonaws.com"
+            "${replace(aws_iam_openid_connect_provider.eks_cluster.url, "https://", "")}:sub" = "system:serviceaccount:prometheus:amp-iamproxy-ingest-service-account"
+            "${replace(aws_iam_openid_connect_provider.eks_cluster.url, "https://", "")}:aud" = "sts.amazonaws.com"
           }
         }
       }
@@ -106,22 +73,7 @@ resource "aws_iam_role_policy_attachment" "prometheus_policy_attachment" {
   policy_arn = aws_iam_policy.prometheus_amp_policy.arn
 }
 
-# # Configure providers (separate from resource dependencies)
-# provider "kubernetes" {
-#   host                   = data.aws_eks_cluster.main.endpoint
-#   cluster_ca_certificate = base64decode(data.aws_eks_cluster.main.certificate_authority[0].data)
-#   token                  = data.aws_eks_cluster_auth.main.token
-# }
-
-# provider "helm" {
-#   kubernetes {
-#     host                   = data.aws_eks_cluster.main.endpoint
-#     cluster_ca_certificate = base64decode(data.aws_eks_cluster.main.certificate_authority[0].data)
-#     token                  = data.aws_eks_cluster_auth.main.token
-#   }
-# }
-
-# Step 2: Create Prometheus namespace
+# Step 3: Create Prometheus namespace
 resource "kubernetes_namespace" "prometheus_namespace" {
   metadata {
     name = "prometheus"
@@ -131,9 +83,11 @@ resource "kubernetes_namespace" "prometheus_namespace" {
       "managed-by"  = "terraform"
     }
   }
+
+  depends_on = [aws_eks_cluster.main]
 }
 
-# Prometheus configuration values following AWS documentation
+# Step 4: Prometheus configuration values following AWS documentation
 locals {
   prometheus_values = {
     serviceAccounts = {
@@ -146,10 +100,10 @@ locals {
     }
     
     server = {
-      # Remote write configuration as per AWS docs
+      # Remote write configuration using VPC endpoint
       remoteWrite = [
         {
-          url = "https://${data.aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.prometheus_workspace.id}/api/v1/remote_write"
+          url = "https://${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.prometheus_workspace.id}/api/v1/remote_write"
           sigv4 = {
             region = data.aws_region.current.name
           }
@@ -181,6 +135,158 @@ locals {
       }
       
       retention = "15d"
+      
+      # Enhanced scraping configuration
+      extraArgs = {
+        "web.enable-lifecycle" = true
+        "storage.tsdb.wal-compression" = true
+      }
+      
+      # Custom Prometheus configuration
+      configMapOverrideName = "prometheus-config-override"
+    }
+    
+    # Enhanced scraping with custom configuration
+    serverFiles = {
+      "prometheus.yml" = {
+        global = {
+          scrape_interval = "30s"
+          evaluation_interval = "30s"
+          external_labels = {
+            cluster = aws_eks_cluster.main.name
+            region = data.aws_region.current.name
+          }
+        }
+        
+        rule_files = []
+        
+        scrape_configs = [
+          # Prometheus self-monitoring
+          {
+            job_name = "prometheus"
+            static_configs = [{
+              targets = ["localhost:9090"]
+            }]
+          },
+          
+          # Node Exporter
+          {
+            job_name = "node-exporter"
+            kubernetes_sd_configs = [{
+              role = "endpoints"
+              namespaces = {
+                names = ["prometheus"]
+              }
+            }]
+            relabel_configs = [
+              {
+                source_labels = ["__meta_kubernetes_service_name"]
+                action = "keep"
+                regex = "prometheus-node-exporter"
+              }
+            ]
+          },
+          
+          # Kube State Metrics
+          {
+            job_name = "kube-state-metrics"
+            kubernetes_sd_configs = [{
+              role = "endpoints"
+              namespaces = {
+                names = ["prometheus"]
+              }
+            }]
+            relabel_configs = [
+              {
+                source_labels = ["__meta_kubernetes_service_name"]
+                action = "keep"
+                regex = "prometheus-kube-state-metrics"
+              }
+            ]
+          },
+          
+          # Kubernetes API Server
+          {
+            job_name = "kubernetes-apiservers"
+            scheme = "https"
+            bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+            tls_config = {
+              ca_file = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+              insecure_skip_verify = true
+            }
+            kubernetes_sd_configs = [{
+              role = "endpoints"
+            }]
+            relabel_configs = [{
+              source_labels = [
+                "__meta_kubernetes_namespace",
+                "__meta_kubernetes_service_name",
+                "__meta_kubernetes_endpoint_port_name"
+              ]
+              action = "keep"
+              regex = "default;kubernetes;https"
+            }]
+          },
+          
+          # cAdvisor for container metrics
+          {
+            job_name = "cadvisor"
+            scheme = "https"
+            bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+            tls_config = {
+              ca_file = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+              insecure_skip_verify = true
+            }
+            kubernetes_sd_configs = [{
+              role = "node"
+            }]
+            relabel_configs = [
+              {
+                action = "labelmap"
+                regex = "__meta_kubernetes_node_label_(.+)"
+              },
+              {
+                replacement = "kubernetes.default.svc:443"
+                target_label = "__address__"
+              },
+              {
+                source_labels = ["__meta_kubernetes_node_name"]
+                regex = "(.+)"
+                target_label = "__metrics_path__"
+                replacement = "/api/v1/nodes/$1/proxy/metrics/cadvisor"
+              }
+            ]
+          },
+          
+          # Application pods with Prometheus annotations
+          {
+            job_name = "kubernetes-pods"
+            kubernetes_sd_configs = [{
+              role = "pod"
+            }]
+            relabel_configs = [
+              {
+                source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scrape"]
+                action = "keep"
+                regex = "true"
+              },
+              {
+                source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_path"]
+                action = "replace"
+                target_label = "__metrics_path__"
+                regex = "(.+)"
+              },
+              {
+                source_labels = ["__address__", "__meta_kubernetes_pod_annotation_prometheus_io_port"]
+                action = "replace"
+                regex = "([^:]+)(?::\\d+)?;(\\d+)"
+                replacement = "$1:$2"
+                target_label = "__address__"
+              }
+            ]
+          }
+        ]
+      }
     }
     
     # Enable essential components
@@ -223,7 +329,7 @@ locals {
   }
 }
 
-# Step 4: Install Prometheus using Helm
+# Step 5: Install Prometheus using Helm
 resource "helm_release" "prometheus" {
   name       = "prometheus"
   repository = "https://prometheus-community.github.io/helm-charts"
@@ -238,7 +344,9 @@ resource "helm_release" "prometheus" {
 
   depends_on = [
     kubernetes_namespace.prometheus_namespace,
-    aws_iam_role_policy_attachment.prometheus_policy_attachment
+    aws_iam_role_policy_attachment.prometheus_policy_attachment,
+    aws_vpc_endpoint.aps_workspaces,
+    aws_vpc_endpoint.sts
   ]
 }
 
@@ -248,7 +356,7 @@ resource "time_sleep" "wait_for_prometheus" {
   create_duration = "90s"
 }
 
-# Optional: Grafana workspace for visualization
+# Step 6: Grafana IAM role for AMP access
 resource "aws_iam_role" "grafana_service_role" {
   name = "grafana-amp-service-role"
 
@@ -272,6 +380,7 @@ resource "aws_iam_role" "grafana_service_role" {
   }
 }
 
+# Enhanced Grafana policy for AMP access
 resource "aws_iam_policy" "grafana_amp_policy" {
   name        = "GrafanaAMPPolicy"
   description = "Policy for AWS Managed Grafana to access AMP"
@@ -290,6 +399,13 @@ resource "aws_iam_policy" "grafana_amp_policy" {
           "aps:GetMetricMetadata"
         ]
         Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "aps:*"
+        ]
+        Resource = aws_prometheus_workspace.prometheus_workspace.arn
       }
     ]
   })
@@ -300,6 +416,7 @@ resource "aws_iam_role_policy_attachment" "grafana_policy_attachment" {
   role       = aws_iam_role.grafana_service_role.name
 }
 
+# Step 7: AWS Managed Grafana Workspace
 resource "aws_grafana_workspace" "grafana" {
   account_access_type      = "CURRENT_ACCOUNT"
   authentication_providers = ["AWS_SSO"]
@@ -310,8 +427,9 @@ resource "aws_grafana_workspace" "grafana" {
   
   data_sources = ["PROMETHEUS", "CLOUDWATCH"]
   
+  # VPC Configuration for private access
   vpc_configuration {
-    security_group_ids = [data.aws_security_group.vpc_endpoints.id]
+    security_group_ids = [aws_security_group.vpc_endpoints.id]
     subnet_ids         = [data.aws_subnet.private_az1.id, data.aws_subnet.private_az2.id]
   }
   
@@ -323,33 +441,37 @@ resource "aws_grafana_workspace" "grafana" {
   }
 
   depends_on = [
-    aws_iam_role_policy_attachment.grafana_policy_attachment
+    aws_iam_role_policy_attachment.grafana_policy_attachment,
+    aws_vpc_endpoint.grafana,
+    aws_vpc_endpoint.grafana_workspace
   ]
 }
 
-# Validation
+# Validation and setup completion
 resource "null_resource" "setup_validation" {
   depends_on = [time_sleep.wait_for_prometheus]
 
   provisioner "local-exec" {
     command = <<-EOT
-      echo "🎉 Clean Prometheus setup complete!"
+      echo "🎉 Enhanced Prometheus setup complete!"
       echo ""
       echo "✅ AWS Documentation Steps Completed:"
       echo "   Step 1: Helm repositories ✓"
       echo "   Step 2: Namespace 'prometheus' created ✓"
       echo "   Step 3: IAM roles configured ✓"
       echo "   Step 4: Prometheus server installed ✓"
+      echo "   Step 5: Enhanced scraping configured ✓"
       echo ""
       echo "📊 Infrastructure Details:"
-      echo "   - EKS Cluster: bsp-eks-cluster11"
+      echo "   - EKS Cluster: ${aws_eks_cluster.main.name}"
       echo "   - AMP Workspace: ${aws_prometheus_workspace.prometheus_workspace.id}"
-      echo "   - VPC Endpoint: ${data.aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}"
+      echo "   - VPC Endpoint: ${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}"
       echo "   - Grafana: ${aws_grafana_workspace.grafana.endpoint}"
       echo ""
       echo "🔍 Quick Verification:"
       echo "   kubectl get pods -n prometheus"
       echo "   kubectl get svc -n prometheus"
+      echo "   kubectl port-forward -n prometheus svc/prometheus-server 9090:80"
     EOT
   }
 
@@ -359,9 +481,9 @@ resource "null_resource" "setup_validation" {
   }
 }
 
-# Clean outputs without conflicts
+# Enhanced outputs
 output "prometheus_monitoring_setup" {
-  description = "Clean Prometheus monitoring setup information"
+  description = "Complete Prometheus monitoring setup information"
   value = {
     # AWS Documentation compliance
     aws_guide_steps = {
@@ -369,6 +491,7 @@ output "prometheus_monitoring_setup" {
       step_2_namespace = kubernetes_namespace.prometheus_namespace.metadata[0].name
       step_3_iam_roles = aws_iam_role.prometheus_ingest_role.name
       step_4_prometheus = helm_release.prometheus.name
+      step_5_grafana = aws_grafana_workspace.grafana.name
     }
     
     # Infrastructure details
@@ -376,24 +499,25 @@ output "prometheus_monitoring_setup" {
       id                = aws_prometheus_workspace.prometheus_workspace.id
       arn               = aws_prometheus_workspace.prometheus_workspace.arn
       endpoint          = aws_prometheus_workspace.prometheus_workspace.prometheus_endpoint
-      vpc_endpoint_url  = "https://${data.aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.prometheus_workspace.id}/"
-      remote_write_url  = "https://${data.aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.prometheus_workspace.id}/api/v1/remote_write"
+      vpc_endpoint_url  = "https://${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.prometheus_workspace.id}/"
+      remote_write_url  = "https://${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.prometheus_workspace.id}/api/v1/remote_write"
     }
     
     grafana_workspace = {
       id       = aws_grafana_workspace.grafana.id
       endpoint = aws_grafana_workspace.grafana.endpoint
+      datasource_url = "https://${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.prometheus_workspace.id}/"
     }
     
     eks_cluster = {
-      name     = "bsp-eks-cluster11"
-      endpoint = data.aws_eks_cluster.main.endpoint
+      name     = aws_eks_cluster.main.name
+      endpoint = aws_eks_cluster.main.endpoint
     }
   }
 }
 
 output "verification_commands" {
-  description = "Commands to verify the setup"
+  description = "Commands to verify the enhanced setup"
   value = {
     # Basic verification
     check_namespace = "kubectl get namespace prometheus"
@@ -405,9 +529,10 @@ output "verification_commands" {
     check_prometheus_logs = "kubectl logs -n prometheus deployment/prometheus-server -c prometheus-server --tail=50"
     check_service_account = "kubectl get serviceaccount -n prometheus amp-iamproxy-ingest-service-account -o yaml"
     
-    # Connectivity tests
-    test_vpc_endpoint = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- nslookup ${data.aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}"
+    # Enhanced connectivity tests
+    test_vpc_endpoint = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- nslookup ${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}"
     test_prometheus_health = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- wget -qO- 'http://localhost:9090/-/healthy'"
+    test_remote_write = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- wget -qO- 'http://localhost:9090/api/v1/query?query=prometheus_remote_storage_samples_total'"
     
     # Port forwarding for local access
     port_forward = "kubectl port-forward -n prometheus svc/prometheus-server 9090:80"
@@ -415,5 +540,6 @@ output "verification_commands" {
     # AWS CLI checks
     check_iam_role = "aws iam get-role --role-name prometheus-amp-ingest-role"
     check_amp_workspace = "aws amp describe-workspace --workspace-id ${aws_prometheus_workspace.prometheus_workspace.id}"
+    check_grafana_workspace = "aws grafana describe-workspace --workspace-id ${aws_grafana_workspace.grafana.id}"
   }
 }
