@@ -29,7 +29,7 @@
 
 resource "helm_release" "metrics_server" {
   name       = "metrics-server"
-  namespace  = "monitoring"
+  namespace  = "default"
   repository = "https://kubernetes-sigs.github.io/metrics-server/"
   chart      = "metrics-server"
   version    = "3.12.2"
@@ -63,7 +63,7 @@ resource "helm_release" "metrics_server" {
     value = "true"
   }
 
-  depends_on = [
-    kubernetes_namespace.monitoring  # Add this dependency
-  ]
+  # depends_on = [
+  #   kubernetes_namespace.monitoring  # Add this dependency
+  # ]
 }
