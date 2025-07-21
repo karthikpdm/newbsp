@@ -890,10 +890,10 @@ output "prometheus_setup_info" {
   description = "Prometheus setup information following AWS documentation"
   value = {
     # Step 1: Helm repositories added ✓
-    helm_repositories = {
-      prometheus_community = helm_repository.prometheus_community.name
-      kube_state_metrics   = helm_repository.kube_state_metrics.name
-    }
+    # helm_repositories = {
+    #   prometheus_community = helm_repository.prometheus_community.name
+    #   kube_state_metrics   = helm_repository.kube_state_metrics.name
+    # }
     
     # Step 2: Namespace created ✓
     namespace = kubernetes_namespace.prometheus_namespace.metadata[0].name
