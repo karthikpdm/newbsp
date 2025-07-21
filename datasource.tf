@@ -56,7 +56,7 @@ data "aws_route_table" "private_az2" {
 
 # EKS Cluster Security Group
 resource "aws_security_group" "eks_cluster" {
-  name        = "bsp-eks-clusters1-sg"
+  name        = "bsp-eks-clusters1-sg1"
   description = "Security group for EKS cluster control plane"
   vpc_id      = data.aws_vpc.main.id
 
