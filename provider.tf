@@ -14,10 +14,10 @@ terraform {
       source  = "hashicorp/helm"
       version = "~> 2.11"
     }
-     kubectl = {
-      source  = "gavinbunney/kubectl"
-      version = ">= 1.7.0"
-    }
+    #  kubectl = {
+    #   source  = "gavinbunney/kubectl"
+    #   version = ">= 1.7.0"
+    # }
     random = {
       source  = "hashicorp/random"
       version = "~> 3.1"
@@ -92,15 +92,15 @@ provider "helm" {
 }
 
 
-# kubectl provider - this will handle Fluent Bit deployment without circular dependencies
-provider "kubectl" {
-  host                   = data.aws_eks_cluster.bsp_eks.endpoint
-  cluster_ca_certificate = base64decode(data.aws_eks_cluster.bsp_eks.certificate_authority[0].data)
-  load_config_file       = false
+# # kubectl provider - this will handle Fluent Bit deployment without circular dependencies
+# provider "kubectl" {
+#   host                   = data.aws_eks_cluster.bsp_eks.endpoint
+#   cluster_ca_certificate = base64decode(data.aws_eks_cluster.bsp_eks.certificate_authority[0].data)
+#   load_config_file       = false
 
-  exec {
-    api_version = "client.authentication.k8s.io/v1beta1"
-    command     = "aws"
-    args        = ["eks", "get-token", "--cluster-name", aws_eks_cluster.main.name, "--region", "us-east-1"]
-  }
-}
+#   exec {
+#     api_version = "client.authentication.k8s.io/v1beta1"
+#     command     = "aws"
+#     args        = ["eks", "get-token", "--cluster-name", aws_eks_cluster.main.name, "--region", "us-east-1"]
+#   }
+# }
