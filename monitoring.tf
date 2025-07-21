@@ -482,32 +482,32 @@
 # Following AWS guide: "Set up ingestion from a new Prometheus server using Helm"
 
 # Data sources for existing infrastructure
-data "aws_region" "current" {}
-data "aws_caller_identity" "current" {}
+# data "aws_region" "current" {}
+# data "aws_caller_identity" "current" {}
 
-# Data source for existing VPC
-data "aws_vpc" "existing" {
-  filter {
-    name   = "tag:Name"
-    values = ["bsp-vpc-poc"]
-  }
-}
+# # Data source for existing VPC
+# data "aws_vpc" "existing" {
+#   filter {
+#     name   = "tag:Name"
+#     values = ["bsp-vpc-poc"]
+#   }
+# }
 
-# Data source for private subnet AZ1
-data "aws_subnet" "private_az1" {
-  filter {
-    name   = "tag:Name"
-    values = ["bsp-private-subnet-az1-poc"]
-  }
-}
+# # Data source for private subnet AZ1
+# data "aws_subnet" "private_az1" {
+#   filter {
+#     name   = "tag:Name"
+#     values = ["bsp-private-subnet-az1-poc"]
+#   }
+# }
 
-# Data source for private subnet AZ2
-data "aws_subnet" "private_az2" {
-  filter {
-    name   = "tag:Name"
-    values = ["bsp-private-subnet-az2-poc"]
-  }
-}
+# # Data source for private subnet AZ2
+# data "aws_subnet" "private_az2" {
+#   filter {
+#     name   = "tag:Name"
+#     values = ["bsp-private-subnet-az2-poc"]
+#   }
+# }
 
 # Data source for existing EKS cluster
 data "aws_eks_cluster" "main" {
@@ -623,20 +623,20 @@ resource "aws_iam_role_policy_attachment" "amp_ingest_policy_attachment" {
   policy_arn = aws_iam_policy.amp_ingest_policy.arn
 }
 
-# Configure Kubernetes and Helm providers
-provider "kubernetes" {
-  host                   = data.aws_eks_cluster.main.endpoint
-  cluster_ca_certificate = base64decode(data.aws_eks_cluster.main.certificate_authority[0].data)
-  token                  = data.aws_eks_cluster_auth.main.token
-}
+# # Configure Kubernetes and Helm providers
+# provider "kubernetes" {
+#   host                   = data.aws_eks_cluster.main.endpoint
+#   cluster_ca_certificate = base64decode(data.aws_eks_cluster.main.certificate_authority[0].data)
+#   token                  = data.aws_eks_cluster_auth.main.token
+# }
 
-provider "helm" {
-  kubernetes {
-    host                   = data.aws_eks_cluster.main.endpoint
-    cluster_ca_certificate = base64decode(data.aws_eks_cluster.main.certificate_authority[0].data)
-    token                  = data.aws_eks_cluster_auth.main.token
-  }
-}
+# provider "helm" {
+#   kubernetes {
+#     host                   = data.aws_eks_cluster.main.endpoint
+#     cluster_ca_certificate = base64decode(data.aws_eks_cluster.main.certificate_authority[0].data)
+#     token                  = data.aws_eks_cluster_auth.main.token
+#   }
+# }
 
 # Step 1 from AWS docs: Add Helm repositories (done via Terraform)
 resource "helm_repository" "prometheus_community" {
