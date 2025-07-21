@@ -401,6 +401,10 @@
 
 # Note: data sources for account ID and region are already in main.tf
 
+# fluent-bit-logging.tf
+
+# Note: data sources for account ID and region are already in main.tf
+
 # IAM Policy for Fluent Bit CloudWatch Logs
 resource "aws_iam_policy" "fluent_bit_cloudwatch_policy" {
   name        = "FluentBitCloudWatchLogsPolicy"
