@@ -639,15 +639,15 @@ resource "aws_iam_role_policy_attachment" "amp_ingest_policy_attachment" {
 # }
 
 # Step 1 from AWS docs: Add Helm repositories (done via Terraform)
-resource "helm_repository" "prometheus_community" {
-  name = "prometheus-community"
-  url  = "https://prometheus-community.github.io/helm-charts"
-}
+# resource "helm_repository" "prometheus_community" {
+#   name = "prometheus-community"
+#   url  = "https://prometheus-community.github.io/helm-charts"
+# }
 
-resource "helm_repository" "kube_state_metrics" {
-  name = "kube-state-metrics"
-  url  = "https://kubernetes.github.io/kube-state-metrics"
-}
+# resource "helm_repository" "kube_state_metrics" {
+#   name = "kube-state-metrics"
+#   url  = "https://kubernetes.github.io/kube-state-metrics"
+# }
 
 # Step 4: Set up the new server and start ingesting metrics
 # Create Prometheus values file as specified in AWS documentation
@@ -743,7 +743,7 @@ locals {
 # Install Prometheus using Helm as specified in AWS documentation
 resource "helm_release" "prometheus" {
   name       = "prometheus"
-  repository = helm_repository.prometheus_community.name
+  repository = "https://prometheus-community.github.io/helm-charts"
   chart      = "prometheus"
   namespace  = kubernetes_namespace.prometheus_namespace.metadata[0].name
   version    = "25.8.0"
@@ -755,9 +755,7 @@ resource "helm_release" "prometheus" {
 
   depends_on = [
     kubernetes_namespace.prometheus_namespace,
-    aws_iam_role_policy_attachment.amp_ingest_policy_attachment,
-    helm_repository.prometheus_community,
-    helm_repository.kube_state_metrics
+    aws_iam_role_policy_attachment.amp_ingest_policy_attachment
   ]
 }
 
