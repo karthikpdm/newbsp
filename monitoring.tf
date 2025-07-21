@@ -343,10 +343,14 @@ resource "helm_release" "prometheus" {
   timeout = 600
 
   depends_on = [
-    kubernetes_namespace.prometheus_namespace,
+     kubernetes_namespace.prometheus_namespace,
     aws_iam_role_policy_attachment.prometheus_policy_attachment,
     aws_vpc_endpoint.aps_workspaces,
-    aws_vpc_endpoint.sts
+    aws_vpc_endpoint.sts,
+    aws_eks_addon.ebs_csi_driver,  # Ensure EBS CSI is ready
+    aws_instance.eks_node_istio_keycloak,  # Ensure nodes are ready
+    aws_instance.eks_node_backend,
+    aws_instance.eks_node_frontend
   ]
 }
 

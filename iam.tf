@@ -73,7 +73,7 @@ resource "aws_iam_role_policy_attachment" "eks_container_registry_policy" {
 
 # Instance Profile for EC2 nodes
 resource "aws_iam_instance_profile" "eks_node_profile" {
-  name = "bsp-eks-node-profile"
+  name = "bsp-eks-node-profile1"
   role = aws_iam_role.eks_node_role.name
 
   tags = {
