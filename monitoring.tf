@@ -87,9 +87,263 @@ resource "kubernetes_namespace" "prometheus_namespace" {
   depends_on = [aws_eks_cluster.main]
 }
 
-# Step 4: Prometheus configuration values following AWS documentation
+# # Step 4: Prometheus configuration values following AWS documentation
+# locals {
+#   prometheus_values = {
+#     serviceAccounts = {
+#       server = {
+#         name = "amp-iamproxy-ingest-service-account"
+#         annotations = {
+#           "eks.amazonaws.com/role-arn" = aws_iam_role.prometheus_ingest_role.arn
+#         }
+#       }
+#     }
+    
+#     server = {
+#       # Remote write configuration using VPC endpoint
+#       remoteWrite = [
+#         {
+#           url = "https://${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.prometheus_workspace.id}/api/v1/remote_write"
+#           sigv4 = {
+#             region = data.aws_region.current.name
+#           }
+#           queue_config = {
+#             max_samples_per_send = 1000
+#             max_shards          = 200
+#             capacity            = 2500
+#           }
+#         }
+#       ]
+      
+#       # Resource configuration
+#       resources = {
+#         limits = {
+#           cpu    = "1000m"
+#           memory = "2Gi"
+#         }
+#         requests = {
+#           cpu    = "500m"
+#           memory = "1Gi"
+#         }
+#       }
+      
+#       # Storage configuration
+#       persistentVolume = {
+#         enabled = true
+#         size    = "20Gi"
+#         storageClass = "gp2"
+#       }
+      
+#       retention = "15d"
+      
+#       # Enhanced scraping configuration
+#       extraArgs = {
+#         # "web.enable-lifecycle" = true
+#         "storage.tsdb.wal-compression" = true
+#       }
+      
+#       # FIXED: Remove the configMapOverrideName - let Helm manage it automatically
+#       # configMapOverrideName = "prometheus-config-override"  # <-- REMOVE THIS LINE
+#     }
+    
+#     # Enhanced scraping with custom configuration
+#     serverFiles = {
+#       "prometheus.yml" = {
+#         # global = {
+#         #   scrape_interval = "30s"
+#         #   evaluation_interval = "30s"
+#         #   external_labels = {
+#         #     cluster = aws_eks_cluster.main.name
+#         #     region = data.aws_region.current.name
+#         #   }
+#         # }
+        
+#         rule_files = []
+        
+#         scrape_configs = [
+#           # Prometheus self-monitoring
+#           {
+#             job_name = "prometheus"
+#             static_configs = [{
+#               targets = ["localhost:9090"]
+#             }]
+#           },
+          
+#           # Node Exporter
+#           {
+#             job_name = "node-exporter"
+#             kubernetes_sd_configs = [{
+#               role = "endpoints"
+#               namespaces = {
+#                 names = ["prometheus"]
+#               }
+#             }]
+#             relabel_configs = [
+#               {
+#                 source_labels = ["__meta_kubernetes_service_name"]
+#                 action = "keep"
+#                 regex = "prometheus-prometheus-node-exporter"  # <-- FIXED: Added release name prefix
+#               }
+#             ]
+#           },
+          
+#           # Kube State Metrics
+#           {
+#             job_name = "kube-state-metrics"
+#             kubernetes_sd_configs = [{
+#               role = "endpoints"
+#               namespaces = {
+#                 names = ["prometheus"]
+#               }
+#             }]
+#             relabel_configs = [
+#               {
+#                 source_labels = ["__meta_kubernetes_service_name"]
+#                 action = "keep"
+#                 regex = "prometheus-kube-state-metrics"  # <-- Already correct
+#               }
+#             ]
+#           },
+          
+#           # Kubernetes API Server
+#           {
+#             job_name = "kubernetes-apiservers"
+#             scheme = "https"
+#             bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+#             tls_config = {
+#               ca_file = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+#               insecure_skip_verify = true
+#             }
+#             kubernetes_sd_configs = [{
+#               role = "endpoints"
+#             }]
+#             relabel_configs = [{
+#               source_labels = [
+#                 "__meta_kubernetes_namespace",
+#                 "__meta_kubernetes_service_name",
+#                 "__meta_kubernetes_endpoint_port_name"
+#               ]
+#               action = "keep"
+#               regex = "default;kubernetes;https"
+#             }]
+#           },
+          
+#           # cAdvisor for container metrics
+#           {
+#             job_name = "cadvisor"
+#             scheme = "https"
+#             bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+#             tls_config = {
+#               ca_file = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+#               insecure_skip_verify = true
+#             }
+#             kubernetes_sd_configs = [{
+#               role = "node"
+#             }]
+#             relabel_configs = [
+#               {
+#                 action = "labelmap"
+#                 regex = "__meta_kubernetes_node_label_(.+)"
+#               },
+#               {
+#                 replacement = "kubernetes.default.svc:443"
+#                 target_label = "__address__"
+#               },
+#               {
+#                 source_labels = ["__meta_kubernetes_node_name"]
+#                 regex = "(.+)"
+#                 target_label = "__metrics_path__"
+#                 replacement = "/api/v1/nodes/$1/proxy/metrics/cadvisor"
+#               }
+#             ]
+#           },
+          
+#           # Application pods with Prometheus annotations
+#           {
+#             job_name = "kubernetes-pods"
+#             kubernetes_sd_configs = [{
+#               role = "pod"
+#             }]
+#             relabel_configs = [
+#               {
+#                 source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scrape"]
+#                 action = "keep"
+#                 regex = "true"
+#               },
+#               {
+#                 source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_path"]
+#                 action = "replace"
+#                 target_label = "__metrics_path__"
+#                 regex = "(.+)"
+#               },
+#               {
+#                 source_labels = ["__address__", "__meta_kubernetes_pod_annotation_prometheus_io_port"]
+#                 action = "replace"
+#                 regex = "([^:]+)(?::\\d+)?;(\\d+)"
+#                 replacement = "$1:$2"
+#                 target_label = "__address__"
+#               }
+#             ]
+#           }
+#         ]
+#       }
+#     }
+    
+#     # Enable essential components
+#     nodeExporter = {
+#       enabled = true
+#       resources = {
+#         limits = {
+#           cpu    = "200m"
+#           memory = "256Mi"
+#         }
+#         requests = {
+#           cpu    = "100m"
+#           memory = "128Mi"
+#         }
+#       }
+#     }
+    
+#     kubeStateMetrics = {
+#       enabled = true
+#       resources = {
+#         limits = {
+#           cpu    = "200m"
+#           memory = "256Mi"
+#         }
+#         requests = {
+#           cpu    = "100m"
+#           memory = "128Mi"
+#         }
+#       }
+#     }
+    
+#     # Disable unnecessary components for now
+#     alertmanager = {
+#       enabled = false
+#     }
+    
+#     pushgateway = {
+#       enabled = true  # Changed to true since it's showing in your helm status
+#       resources = {
+#         limits = {
+#           cpu    = "200m"
+#           memory = "256Mi"
+#         }
+#         requests = {
+#           cpu    = "100m"
+#           memory = "128Mi"
+#         }
+#       }
+#     }
+#   }
+# }
+
+
+# Step 4: Simplified Prometheus configuration
 locals {
   prometheus_values = {
+    # Basic service account configuration
     serviceAccounts = {
       server = {
         name = "amp-iamproxy-ingest-service-account"
@@ -99,21 +353,14 @@ locals {
       }
     }
     
+    # Basic server configuration
     server = {
-      # Remote write configuration using VPC endpoint
-      remoteWrite = [
-        {
-          url = "https://${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.prometheus_workspace.id}/api/v1/remote_write"
-          sigv4 = {
-            region = data.aws_region.current.name
-          }
-          queue_config = {
-            max_samples_per_send = 1000
-            max_shards          = 200
-            capacity            = 2500
-          }
-        }
-      ]
+      # Storage configuration
+      persistentVolume = {
+        enabled = true
+        size    = "20Gi"
+        storageClass = "gp2"
+      }
       
       # Resource configuration
       resources = {
@@ -127,195 +374,16 @@ locals {
         }
       }
       
-      # Storage configuration
-      persistentVolume = {
-        enabled = true
-        size    = "20Gi"
-        storageClass = "gp2"
-      }
-      
       retention = "15d"
-      
-      # Enhanced scraping configuration
-      extraArgs = {
-        # "web.enable-lifecycle" = true
-        "storage.tsdb.wal-compression" = true
-      }
-      
-      # FIXED: Remove the configMapOverrideName - let Helm manage it automatically
-      # configMapOverrideName = "prometheus-config-override"  # <-- REMOVE THIS LINE
     }
     
-    # Enhanced scraping with custom configuration
-    serverFiles = {
-      "prometheus.yml" = {
-        # global = {
-        #   scrape_interval = "30s"
-        #   evaluation_interval = "30s"
-        #   external_labels = {
-        #     cluster = aws_eks_cluster.main.name
-        #     region = data.aws_region.current.name
-        #   }
-        # }
-        
-        rule_files = []
-        
-        scrape_configs = [
-          # Prometheus self-monitoring
-          {
-            job_name = "prometheus"
-            static_configs = [{
-              targets = ["localhost:9090"]
-            }]
-          },
-          
-          # Node Exporter
-          {
-            job_name = "node-exporter"
-            kubernetes_sd_configs = [{
-              role = "endpoints"
-              namespaces = {
-                names = ["prometheus"]
-              }
-            }]
-            relabel_configs = [
-              {
-                source_labels = ["__meta_kubernetes_service_name"]
-                action = "keep"
-                regex = "prometheus-prometheus-node-exporter"  # <-- FIXED: Added release name prefix
-              }
-            ]
-          },
-          
-          # Kube State Metrics
-          {
-            job_name = "kube-state-metrics"
-            kubernetes_sd_configs = [{
-              role = "endpoints"
-              namespaces = {
-                names = ["prometheus"]
-              }
-            }]
-            relabel_configs = [
-              {
-                source_labels = ["__meta_kubernetes_service_name"]
-                action = "keep"
-                regex = "prometheus-kube-state-metrics"  # <-- Already correct
-              }
-            ]
-          },
-          
-          # Kubernetes API Server
-          {
-            job_name = "kubernetes-apiservers"
-            scheme = "https"
-            bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
-            tls_config = {
-              ca_file = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-              insecure_skip_verify = true
-            }
-            kubernetes_sd_configs = [{
-              role = "endpoints"
-            }]
-            relabel_configs = [{
-              source_labels = [
-                "__meta_kubernetes_namespace",
-                "__meta_kubernetes_service_name",
-                "__meta_kubernetes_endpoint_port_name"
-              ]
-              action = "keep"
-              regex = "default;kubernetes;https"
-            }]
-          },
-          
-          # cAdvisor for container metrics
-          {
-            job_name = "cadvisor"
-            scheme = "https"
-            bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
-            tls_config = {
-              ca_file = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-              insecure_skip_verify = true
-            }
-            kubernetes_sd_configs = [{
-              role = "node"
-            }]
-            relabel_configs = [
-              {
-                action = "labelmap"
-                regex = "__meta_kubernetes_node_label_(.+)"
-              },
-              {
-                replacement = "kubernetes.default.svc:443"
-                target_label = "__address__"
-              },
-              {
-                source_labels = ["__meta_kubernetes_node_name"]
-                regex = "(.+)"
-                target_label = "__metrics_path__"
-                replacement = "/api/v1/nodes/$1/proxy/metrics/cadvisor"
-              }
-            ]
-          },
-          
-          # Application pods with Prometheus annotations
-          {
-            job_name = "kubernetes-pods"
-            kubernetes_sd_configs = [{
-              role = "pod"
-            }]
-            relabel_configs = [
-              {
-                source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scrape"]
-                action = "keep"
-                regex = "true"
-              },
-              {
-                source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_path"]
-                action = "replace"
-                target_label = "__metrics_path__"
-                regex = "(.+)"
-              },
-              {
-                source_labels = ["__address__", "__meta_kubernetes_pod_annotation_prometheus_io_port"]
-                action = "replace"
-                regex = "([^:]+)(?::\\d+)?;(\\d+)"
-                replacement = "$1:$2"
-                target_label = "__address__"
-              }
-            ]
-          }
-        ]
-      }
-    }
-    
-    # Enable essential components
+    # Enable basic components
     nodeExporter = {
       enabled = true
-      resources = {
-        limits = {
-          cpu    = "200m"
-          memory = "256Mi"
-        }
-        requests = {
-          cpu    = "100m"
-          memory = "128Mi"
-        }
-      }
     }
     
     kubeStateMetrics = {
       enabled = true
-      resources = {
-        limits = {
-          cpu    = "200m"
-          memory = "256Mi"
-        }
-        requests = {
-          cpu    = "100m"
-          memory = "128Mi"
-        }
-      }
     }
     
     # Disable unnecessary components for now
@@ -324,20 +392,11 @@ locals {
     }
     
     pushgateway = {
-      enabled = true  # Changed to true since it's showing in your helm status
-      resources = {
-        limits = {
-          cpu    = "200m"
-          memory = "256Mi"
-        }
-        requests = {
-          cpu    = "100m"
-          memory = "128Mi"
-        }
-      }
+      enabled = false
     }
   }
 }
+
 
 # Step 5: Install Prometheus using Helm
 resource "helm_release" "prometheus" {
