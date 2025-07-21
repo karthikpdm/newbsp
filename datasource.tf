@@ -1,10 +1,62 @@
-# data-sources.tf - Fixed version
+# # data-sources.tf - Fixed version
+
+# # Data source for existing VPC
+# data "aws_vpc" "existing" {
+#   filter {
+#     name   = "tag:Name"
+#     values = ["bsp-vpc-poc"]
+#   }
+# }
+
+# # Data source for private subnet AZ1
+# data "aws_subnet" "private_az1" {
+#   filter {
+#     name   = "tag:Name"
+#     values = ["bsp-private-subnet-az1-poc"]
+#   }
+# }
+
+# # Data source for private subnet AZ2
+# data "aws_subnet" "private_az2" {
+#   filter {
+#     name   = "tag:Name"
+#     values = ["bsp-private-subnet-az2-poc"]
+#   }
+# }
+
+# # Get current AWS region
+# # data "aws_region" "current" {}
+
+# # # Get current AWS caller identity
+# # data "aws_caller_identity" "current" {}
+
+# # FIXED: Security Group for VPC Endpoints (moved here for proper dependency)
+# # This was originally in your vpc-endpoints file but had issues
+
+# # Get both private route tables
+# data "aws_route_table" "private_az1" {
+#   filter {
+#     name   = "tag:Name"
+#     values = ["bsp-private-route-table-az1-poc"]
+#   }
+# }
+
+# data "aws_route_table" "private_az2" {
+#   filter {
+#     name   = "tag:Name"
+#     values = ["bsp-private-route-table-az2-poc"]
+#   }
+# }
+
+
+
+
 
 # Data source for existing VPC
 data "aws_vpc" "existing" {
   filter {
     name   = "tag:Name"
-    values = ["bsp-vpc-poc"]
+    values = ["pw-vpc-poc"]
   }
 }
 
@@ -12,7 +64,7 @@ data "aws_vpc" "existing" {
 data "aws_subnet" "private_az1" {
   filter {
     name   = "tag:Name"
-    values = ["bsp-private-subnet-az1-poc"]
+    values = ["pw-private-subnet-az1-poc"]
   }
 }
 
@@ -20,7 +72,7 @@ data "aws_subnet" "private_az1" {
 data "aws_subnet" "private_az2" {
   filter {
     name   = "tag:Name"
-    values = ["bsp-private-subnet-az2-poc"]
+    values = ["pw-private-subnet-az2-poc"]
   }
 }
 
@@ -37,16 +89,17 @@ data "aws_subnet" "private_az2" {
 data "aws_route_table" "private_az1" {
   filter {
     name   = "tag:Name"
-    values = ["bsp-private-route-table-az1-poc"]
+    values = ["pw-private-route-table-az1-poc"]
   }
 }
 
 data "aws_route_table" "private_az2" {
   filter {
     name   = "tag:Name"
-    values = ["bsp-private-route-table-az2-poc"]
+    values = ["pw-private-route-table-az2-poc"]
   }
 }
+
 
 # VPC Endpoints Configuration
 
