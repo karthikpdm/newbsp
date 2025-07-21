@@ -391,513 +391,513 @@
 
 
 
-# # fluent-bit-logging.tf
-
-# # # Get current AWS account ID and region
-# # data "aws_caller_identity" "current" {}
-# # data "aws_region" "current" {}
-
-# # IAM Policy for Fluent Bit CloudWatch Logs
-# resource "aws_iam_policy" "fluent_bit_cloudwatch_policy" {
-#   name        = "FluentBitCloudWatchLogsPolicy"
-#   description = "Policy for Fluent Bit to write logs to CloudWatch"
-
-#   policy = jsonencode({
-#     Version = "2012-10-17"
-#     Statement = [
-#       {
-#         Effect = "Allow"
-#         Action = [
-#           "logs:CreateLogGroup",
-#           "logs:CreateLogStream",
-#           "logs:PutLogEvents",
-#           "logs:DescribeLogStreams",
-#           "logs:DescribeLogGroups",
-#           "logs:PutRetentionPolicy"
-#         ]
-#         Resource = "*"
-#       }
-#     ]
-#   })
-
-#   tags = {
-#     Name = "FluentBitCloudWatchLogsPolicy"
-#     Environment = "poc"
-#   }
-# }
-
-# # IAM Role for Fluent Bit Service Account (IRSA)
-# resource "aws_iam_role" "fluent_bit_role" {
-#   name = "fluent-bit-role"
-
-#   assume_role_policy = jsonencode({
-#     Version = "2012-10-17"
-#     Statement = [
-#       {
-#         Effect = "Allow"
-#         Principal = {
-#           Federated = aws_iam_openid_connect_provider.eks_cluster.arn
-#         }
-#         Action = "sts:AssumeRoleWithWebIdentity"
-#         Condition = {
-#           StringEquals = {
-#             "${replace(aws_iam_openid_connect_provider.eks_cluster.url, "https://", "")}:sub" = "system:serviceaccount:kube-system:fluent-bit"
-#             "${replace(aws_iam_openid_connect_provider.eks_cluster.url, "https://", "")}:aud" = "sts.amazonaws.com"
-#           }
-#         }
-#       }
-#     ]
-#   })
-
-#   tags = {
-#     Name = "fluent-bit-role"
-#     Environment = "poc"
-#   }
-
-#   depends_on = [aws_iam_openid_connect_provider.eks_cluster]
-# }
-
-# # Attach CloudWatch policy to Fluent Bit role
-# resource "aws_iam_role_policy_attachment" "fluent_bit_cloudwatch_attachment" {
-#   policy_arn = aws_iam_policy.fluent_bit_cloudwatch_policy.arn
-#   role       = aws_iam_role.fluent_bit_role.name
-# }
-
-# # Kubernetes ServiceAccount for Fluent Bit
-# resource "kubernetes_service_account" "fluent_bit" {
-#   metadata {
-#     name      = "fluent-bit"
-#     namespace = "kube-system"
-#     annotations = {
-#       "eks.amazonaws.com/role-arn" = aws_iam_role.fluent_bit_role.arn
-#     }
-#   }
-
-#   depends_on = [
-#     aws_eks_cluster.main,
-#     aws_iam_role.fluent_bit_role
-#   ]
-# }
-
-# # Kubernetes ClusterRole for Fluent Bit
-# resource "kubernetes_cluster_role" "fluent_bit_read" {
-#   metadata {
-#     name = "fluent-bit-read"
-#   }
-
-#   rule {
-#     api_groups = [""]
-#     resources  = ["namespaces", "pods", "pods/logs", "nodes", "nodes/proxy"]
-#     verbs      = ["get", "list", "watch"]
-#   }
-
-#   depends_on = [aws_eks_cluster.main]
-# }
-
-# # Kubernetes ClusterRoleBinding for Fluent Bit
-# resource "kubernetes_cluster_role_binding" "fluent_bit_read" {
-#   metadata {
-#     name = "fluent-bit-read"
-#   }
-
-#   role_ref {
-#     api_group = "rbac.authorization.k8s.io"
-#     kind      = "ClusterRole"
-#     name      = kubernetes_cluster_role.fluent_bit_read.metadata[0].name
-#   }
-
-#   subject {
-#     kind      = "ServiceAccount"
-#     name      = kubernetes_service_account.fluent_bit.metadata[0].name
-#     namespace = kubernetes_service_account.fluent_bit.metadata[0].namespace
-#   }
-
-#   depends_on = [
-#     kubernetes_service_account.fluent_bit,
-#     kubernetes_cluster_role.fluent_bit_read
-#   ]
-# }
-
-# # ConfigMap for Fluent Bit configuration
-# resource "kubernetes_config_map" "fluent_bit_config" {
-#   metadata {
-#     name      = "fluent-bit-config"
-#     namespace = "kube-system"
-#   }
-
-#   data = {
-#     "fluent-bit.conf" = <<-EOT
-#       [SERVICE]
-#           Flush         5
-#           Log_Level     info
-#           Daemon        off
-#           Parsers_File  parsers.conf
-#           HTTP_Server   On
-#           HTTP_Listen   0.0.0.0
-#           HTTP_Port     2020
-#           storage.path  /var/fluent-bit/state/flb-storage/
-#           storage.sync  normal
-#           storage.checksum off
-#           storage.backlog.mem_limit 5M
-
-#       [INPUT]
-#           Name              tail
-#           Tag               kube.*
-#           Path              /var/log/containers/*.log
-#           multiline.parser  docker, cri
-#           DB                /var/fluent-bit/state/flb_kube.db
-#           Mem_Buf_Limit     50MB
-#           Skip_Long_Lines   On
-#           Refresh_Interval  10
-#           Rotate_Wait       30
-#           storage.type      filesystem
-#           Read_from_Head    false
-
-#       [FILTER]
-#           Name                kubernetes
-#           Match               kube.*
-#           Kube_URL            https://kubernetes.default.svc:443
-#           Kube_CA_File        /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-#           Kube_Token_File     /var/run/secrets/kubernetes.io/serviceaccount/token
-#           Kube_Tag_Prefix     kube.var.log.containers.
-#           Merge_Log           On
-#           Merge_Log_Key       log_processed
-#           K8S-Logging.Parser  On
-#           K8S-Logging.Exclude Off
-#           Labels              Off
-#           Annotations         Off
-#           Use_Kubelet         On
-#           Kubelet_Port        10250
-#           Buffer_Size         0
-
-#       # Include all namespaces including system namespaces
-#       # No filtering - all namespaces will be included
-
-#       # Output to CloudWatch with namespace-based log groups
-#       [OUTPUT]
-#           Name                cloudwatch_logs
-#           Match               kube.*
-#           region              ${data.aws_region.current.name}
-#           log_group_name      /aws/eks/${aws_eks_cluster.main.name}/namespace/$${kubernetes['namespace_name']}
-#           log_stream_name     $${kubernetes['pod_name']}-$${kubernetes['container_name']}
-#           auto_create_group   true
-#           log_retention_days  7
-#           log_key             log
-#           extra_user_agent    container-insights
-#     EOT
-
-#     "parsers.conf" = <<-EOT
-#       [PARSER]
-#           Name   apache
-#           Format regex
-#           Regex  ^(?<host>[^ ]*) [^ ]* (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)?" (?<code>[^ ]*) (?<size>[^ ]*)(?: "(?<referer>[^\"]*)" "(?<agent>[^\"]*)")?$
-#           Time_Key time
-#           Time_Format %d/%b/%Y:%H:%M:%S %z
-
-#       [PARSER]
-#           Name   apache2
-#           Format regex
-#           Regex  ^(?<host>[^ ]*) [^ ]* (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^ ]*) +\S*)?" (?<code>[^ ]*) (?<size>[^ ]*)(?: "(?<referer>[^\"]*)" "(?<agent>[^\"]*)")?$
-#           Time_Key time
-#           Time_Format %d/%b/%Y:%H:%M:%S %z
-
-#       [PARSER]
-#           Name   apache_error
-#           Format regex
-#           Regex  ^\[[^ ]* (?<time>[^\]]*)\] \[(?<level>[^\]]*)\](?: \[pid (?<pid>[^\]]*)\])?( \[client (?<client>[^\]]*)\])? (?<message>.*)$
-
-#       [PARSER]
-#           Name   nginx
-#           Format regex
-#           Regex ^(?<remote>[^ ]*) (?<host>[^ ]*) (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)?" (?<code>[^ ]*) (?<size>[^ ]*)(?: "(?<referer>[^\"]*)" "(?<agent>[^\"]*)")?$
-#           Time_Key time
-#           Time_Format %d/%b/%Y:%H:%M:%S %z
-
-#       [PARSER]
-#           Name   k8s-nginx-ingress
-#           Format regex
-#           Regex ^(?<host>[^ ]*) - (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)?" (?<code>[^ ]*) (?<size>[^ ]*) "(?<referer>[^\"]*)" "(?<agent>[^\"]*)" (?<request_length>[^ ]*) (?<request_time>[^ ]*) \[(?<proxy_upstream_name>[^ ]*)\] (\[(?<proxy_alternative_upstream_name>[^ ]*)\] )?(?<upstream_addr>[^ ]*) (?<upstream_response_length>[^ ]*) (?<upstream_response_time>[^ ]*) (?<upstream_status>[^ ]*) (?<reg_id>[^ ]*).*$
-#           Time_Key time
-#           Time_Format %d/%b/%Y:%H:%M:%S %z
-
-#       [PARSER]
-#           Name        docker
-#           Format      json
-#           Time_Key    time
-#           Time_Format %Y-%m-%dT%H:%M:%S.%LZ
-
-#       [PARSER]
-#           Name    syslog
-#           Format  regex
-#           Regex   ^\<(?<pri>[0-9]+)\>(?<time>[^ ]* {1,2}[^ ]* [^ ]*) (?<host>[^ ]*) (?<ident>[a-zA-Z0-9_\/\.\-]*)(?:\[(?<pid>[0-9]+)\])?(?:[^\:]*\:)? *(?<message>.*)$
-#           Time_Key time
-#           Time_Format %b %d %H:%M:%S
-#     EOT
-#   }
-
-#   depends_on = [aws_eks_cluster.main]
-# }
-
-# # ConfigMap for cluster information
-# resource "kubernetes_config_map" "fluent_bit_cluster_info" {
-#   metadata {
-#     name      = "fluent-bit-cluster-info"
-#     namespace = "kube-system"
-#   }
-
-#   data = {
-#     "cluster.name" = aws_eks_cluster.main.name
-#     "logs.region"  = data.aws_region.current.name
-#     "http.server"  = "On"
-#     "http.port"    = "2020"
-#     "read.head"    = "Off"
-#     "read.tail"    = "On"
-#   }
-
-#   depends_on = [aws_eks_cluster.main]
-# }
-
-# # DaemonSet for Fluent Bit
-# resource "kubernetes_daemonset" "fluent_bit" {
-#   metadata {
-#     name      = "fluent-bit"
-#     namespace = "kube-system"
-#     labels = {
-#       "k8s-app"                         = "fluent-bit-logging"
-#       "version"                         = "v1"
-#       "kubernetes.io/cluster-service"   = "true"
-#     }
-#   }
-
-#   spec {
-#     selector {
-#       match_labels = {
-#         "k8s-app" = "fluent-bit-logging"
-#       }
-#     }
-
-#     template {
-#       metadata {
-#         labels = {
-#           "k8s-app"                       = "fluent-bit-logging"
-#           "version"                       = "v1"
-#           "kubernetes.io/cluster-service" = "true"
-#         }
-#       }
-
-#       spec {
-#         service_account_name = kubernetes_service_account.fluent_bit.metadata[0].name
-#         host_network         = true
-#         dns_policy          = "ClusterFirstWithHostNet"
-#         termination_grace_period_seconds = 10
-
-#         toleration {
-#           key      = "node-role.kubernetes.io/master"
-#           operator = "Exists"
-#           effect   = "NoSchedule"
-#         }
-
-#         toleration {
-#           operator = "Exists"
-#           effect   = "NoExecute"
-#         }
-
-#         toleration {
-#           operator = "Exists"
-#           effect   = "NoSchedule"
-#         }
-
-#         container {
-#           name  = "fluent-bit"
-#           image = "amazon/aws-for-fluent-bit:stable"
-#           image_pull_policy = "Always"
-
-#           env {
-#             name = "AWS_REGION"
-#             value_from {
-#               config_map_key_ref {
-#                 name = kubernetes_config_map.fluent_bit_cluster_info.metadata[0].name
-#                 key  = "logs.region"
-#               }
-#             }
-#           }
-
-#           env {
-#             name = "CLUSTER_NAME"
-#             value_from {
-#               config_map_key_ref {
-#                 name = kubernetes_config_map.fluent_bit_cluster_info.metadata[0].name
-#                 key  = "cluster.name"
-#               }
-#             }
-#           }
-
-#           env {
-#             name = "HTTP_SERVER"
-#             value_from {
-#               config_map_key_ref {
-#                 name = kubernetes_config_map.fluent_bit_cluster_info.metadata[0].name
-#                 key  = "http.server"
-#               }
-#             }
-#           }
-
-#           env {
-#             name = "HTTP_PORT"
-#             value_from {
-#               config_map_key_ref {
-#                 name = kubernetes_config_map.fluent_bit_cluster_info.metadata[0].name
-#                 key  = "http.port"
-#               }
-#             }
-#           }
-
-#           env {
-#             name = "READ_FROM_HEAD"
-#             value_from {
-#               config_map_key_ref {
-#                 name = kubernetes_config_map.fluent_bit_cluster_info.metadata[0].name
-#                 key  = "read.head"
-#               }
-#             }
-#           }
-
-#           env {
-#             name = "READ_FROM_TAIL"
-#             value_from {
-#               config_map_key_ref {
-#                 name = kubernetes_config_map.fluent_bit_cluster_info.metadata[0].name
-#                 key  = "read.tail"
-#               }
-#             }
-#           }
-
-#           env {
-#             name = "HOST_NAME"
-#             value_from {
-#               field_ref {
-#                 field_path = "spec.nodeName"
-#               }
-#             }
-#           }
-
-#           env {
-#             name = "HOSTNAME"
-#             value_from {
-#               field_ref {
-#                 api_version = "v1"
-#                 field_path  = "metadata.name"
-#               }
-#             }
-#           }
-
-#           env {
-#             name  = "CI_VERSION"
-#             value = "k8s/1.3.26"
-#           }
-
-#           resources {
-#             limits = {
-#               memory = "200Mi"
-#             }
-#             requests = {
-#               cpu    = "500m"
-#               memory = "100Mi"
-#             }
-#           }
-
-#           volume_mount {
-#             name       = "fluentbitstate"
-#             mount_path = "/var/fluent-bit/state"
-#           }
-
-#           volume_mount {
-#             name       = "varlog"
-#             mount_path = "/var/log"
-#             read_only  = true
-#           }
-
-#           volume_mount {
-#             name       = "varlibdockercontainers"
-#             mount_path = "/var/lib/docker/containers"
-#             read_only  = true
-#           }
-
-#           volume_mount {
-#             name       = "fluent-bit-config"
-#             mount_path = "/fluent-bit/etc/"
-#           }
-
-#           volume_mount {
-#             name       = "runlogjournal"
-#             mount_path = "/run/log/journal"
-#             read_only  = true
-#           }
-
-#           volume_mount {
-#             name       = "dmesg"
-#             mount_path = "/var/log/dmesg"
-#             read_only  = true
-#           }
-#         }
-
-#         volume {
-#           name = "fluentbitstate"
-#           host_path {
-#             path = "/var/fluent-bit/state"
-#           }
-#         }
-
-#         volume {
-#           name = "varlog"
-#           host_path {
-#             path = "/var/log"
-#           }
-#         }
-
-#         volume {
-#           name = "varlibdockercontainers"
-#           host_path {
-#             path = "/var/lib/docker/containers"
-#           }
-#         }
-
-#         volume {
-#           name = "fluent-bit-config"
-#           config_map {
-#             name = kubernetes_config_map.fluent_bit_config.metadata[0].name
-#           }
-#         }
-
-#         volume {
-#           name = "runlogjournal"
-#           host_path {
-#             path = "/run/log/journal"
-#           }
-#         }
-
-#         volume {
-#           name = "dmesg"
-#           host_path {
-#             path = "/var/log/dmesg"
-#           }
-#         }
-#       }
-#     }
-#   }
-
-#   depends_on = [
-#     aws_eks_cluster.main,
-#     kubernetes_service_account.fluent_bit,
-#     kubernetes_cluster_role_binding.fluent_bit_read,
-#     kubernetes_config_map.fluent_bit_config,
-#     kubernetes_config_map.fluent_bit_cluster_info,
-#     aws_iam_role_policy_attachment.fluent_bit_cloudwatch_attachment
-#   ]
-# }
-
-# # Output the IAM role ARN for reference
-# output "fluent_bit_role_arn" {
-#   description = "ARN of the Fluent Bit IAM role"
-#   value       = aws_iam_role.fluent_bit_role.arn
-# }
+# fluent-bit-logging.tf
+
+# # Get current AWS account ID and region
+# data "aws_caller_identity" "current" {}
+# data "aws_region" "current" {}
+
+# IAM Policy for Fluent Bit CloudWatch Logs
+resource "aws_iam_policy" "fluent_bit_cloudwatch_policy" {
+  name        = "FluentBitCloudWatchLogsPolicy"
+  description = "Policy for Fluent Bit to write logs to CloudWatch"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+          "logs:DescribeLogStreams",
+          "logs:DescribeLogGroups",
+          "logs:PutRetentionPolicy"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = {
+    Name = "FluentBitCloudWatchLogsPolicy"
+    Environment = "poc"
+  }
+}
+
+# IAM Role for Fluent Bit Service Account (IRSA)
+resource "aws_iam_role" "fluent_bit_role" {
+  name = "fluent-bit-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Federated = aws_iam_openid_connect_provider.eks_cluster.arn
+        }
+        Action = "sts:AssumeRoleWithWebIdentity"
+        Condition = {
+          StringEquals = {
+            "${replace(aws_iam_openid_connect_provider.eks_cluster.url, "https://", "")}:sub" = "system:serviceaccount:kube-system:fluent-bit"
+            "${replace(aws_iam_openid_connect_provider.eks_cluster.url, "https://", "")}:aud" = "sts.amazonaws.com"
+          }
+        }
+      }
+    ]
+  })
+
+  tags = {
+    Name = "fluent-bit-role"
+    Environment = "poc"
+  }
+
+  depends_on = [aws_iam_openid_connect_provider.eks_cluster]
+}
+
+# Attach CloudWatch policy to Fluent Bit role
+resource "aws_iam_role_policy_attachment" "fluent_bit_cloudwatch_attachment" {
+  policy_arn = aws_iam_policy.fluent_bit_cloudwatch_policy.arn
+  role       = aws_iam_role.fluent_bit_role.name
+}
+
+# Kubernetes ServiceAccount for Fluent Bit
+resource "kubernetes_service_account" "fluent_bit" {
+  metadata {
+    name      = "fluent-bit"
+    namespace = "kube-system"
+    annotations = {
+      "eks.amazonaws.com/role-arn" = aws_iam_role.fluent_bit_role.arn
+    }
+  }
+
+  depends_on = [
+    aws_eks_cluster.main,
+    aws_iam_role.fluent_bit_role
+  ]
+}
+
+# Kubernetes ClusterRole for Fluent Bit
+resource "kubernetes_cluster_role" "fluent_bit_read" {
+  metadata {
+    name = "fluent-bit-read"
+  }
+
+  rule {
+    api_groups = [""]
+    resources  = ["namespaces", "pods", "pods/logs", "nodes", "nodes/proxy"]
+    verbs      = ["get", "list", "watch"]
+  }
+
+  depends_on = [aws_eks_cluster.main]
+}
+
+# Kubernetes ClusterRoleBinding for Fluent Bit
+resource "kubernetes_cluster_role_binding" "fluent_bit_read" {
+  metadata {
+    name = "fluent-bit-read"
+  }
+
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "ClusterRole"
+    name      = kubernetes_cluster_role.fluent_bit_read.metadata[0].name
+  }
+
+  subject {
+    kind      = "ServiceAccount"
+    name      = kubernetes_service_account.fluent_bit.metadata[0].name
+    namespace = kubernetes_service_account.fluent_bit.metadata[0].namespace
+  }
+
+  depends_on = [
+    kubernetes_service_account.fluent_bit,
+    kubernetes_cluster_role.fluent_bit_read
+  ]
+}
+
+# ConfigMap for Fluent Bit configuration
+resource "kubernetes_config_map" "fluent_bit_config" {
+  metadata {
+    name      = "fluent-bit-config"
+    namespace = "kube-system"
+  }
+
+  data = {
+    "fluent-bit.conf" = <<-EOT
+      [SERVICE]
+          Flush         5
+          Log_Level     info
+          Daemon        off
+          Parsers_File  parsers.conf
+          HTTP_Server   On
+          HTTP_Listen   0.0.0.0
+          HTTP_Port     2020
+          storage.path  /var/fluent-bit/state/flb-storage/
+          storage.sync  normal
+          storage.checksum off
+          storage.backlog.mem_limit 5M
+
+      [INPUT]
+          Name              tail
+          Tag               kube.*
+          Path              /var/log/containers/*.log
+          multiline.parser  docker, cri
+          DB                /var/fluent-bit/state/flb_kube.db
+          Mem_Buf_Limit     50MB
+          Skip_Long_Lines   On
+          Refresh_Interval  10
+          Rotate_Wait       30
+          storage.type      filesystem
+          Read_from_Head    false
+
+      [FILTER]
+          Name                kubernetes
+          Match               kube.*
+          Kube_URL            https://kubernetes.default.svc:443
+          Kube_CA_File        /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          Kube_Token_File     /var/run/secrets/kubernetes.io/serviceaccount/token
+          Kube_Tag_Prefix     kube.var.log.containers.
+          Merge_Log           On
+          Merge_Log_Key       log_processed
+          K8S-Logging.Parser  On
+          K8S-Logging.Exclude Off
+          Labels              Off
+          Annotations         Off
+          Use_Kubelet         On
+          Kubelet_Port        10250
+          Buffer_Size         0
+
+      # Include all namespaces including system namespaces
+      # No filtering - all namespaces will be included
+
+      # Output to CloudWatch with namespace-based log groups
+      [OUTPUT]
+          Name                cloudwatch_logs
+          Match               kube.*
+          region              ${data.aws_region.current.name}
+          log_group_name      /aws/eks/${aws_eks_cluster.main.name}/namespace/$${kubernetes['namespace_name']}
+          log_stream_name     $${kubernetes['pod_name']}-$${kubernetes['container_name']}
+          auto_create_group   true
+          log_retention_days  7
+          log_key             log
+          extra_user_agent    container-insights
+    EOT
+
+    "parsers.conf" = <<-EOT
+      [PARSER]
+          Name   apache
+          Format regex
+          Regex  ^(?<host>[^ ]*) [^ ]* (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)?" (?<code>[^ ]*) (?<size>[^ ]*)(?: "(?<referer>[^\"]*)" "(?<agent>[^\"]*)")?$
+          Time_Key time
+          Time_Format %d/%b/%Y:%H:%M:%S %z
+
+      [PARSER]
+          Name   apache2
+          Format regex
+          Regex  ^(?<host>[^ ]*) [^ ]* (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^ ]*) +\S*)?" (?<code>[^ ]*) (?<size>[^ ]*)(?: "(?<referer>[^\"]*)" "(?<agent>[^\"]*)")?$
+          Time_Key time
+          Time_Format %d/%b/%Y:%H:%M:%S %z
+
+      [PARSER]
+          Name   apache_error
+          Format regex
+          Regex  ^\[[^ ]* (?<time>[^\]]*)\] \[(?<level>[^\]]*)\](?: \[pid (?<pid>[^\]]*)\])?( \[client (?<client>[^\]]*)\])? (?<message>.*)$
+
+      [PARSER]
+          Name   nginx
+          Format regex
+          Regex ^(?<remote>[^ ]*) (?<host>[^ ]*) (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)?" (?<code>[^ ]*) (?<size>[^ ]*)(?: "(?<referer>[^\"]*)" "(?<agent>[^\"]*)")?$
+          Time_Key time
+          Time_Format %d/%b/%Y:%H:%M:%S %z
+
+      [PARSER]
+          Name   k8s-nginx-ingress
+          Format regex
+          Regex ^(?<host>[^ ]*) - (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)?" (?<code>[^ ]*) (?<size>[^ ]*) "(?<referer>[^\"]*)" "(?<agent>[^\"]*)" (?<request_length>[^ ]*) (?<request_time>[^ ]*) \[(?<proxy_upstream_name>[^ ]*)\] (\[(?<proxy_alternative_upstream_name>[^ ]*)\] )?(?<upstream_addr>[^ ]*) (?<upstream_response_length>[^ ]*) (?<upstream_response_time>[^ ]*) (?<upstream_status>[^ ]*) (?<reg_id>[^ ]*).*$
+          Time_Key time
+          Time_Format %d/%b/%Y:%H:%M:%S %z
+
+      [PARSER]
+          Name        docker
+          Format      json
+          Time_Key    time
+          Time_Format %Y-%m-%dT%H:%M:%S.%LZ
+
+      [PARSER]
+          Name    syslog
+          Format  regex
+          Regex   ^\<(?<pri>[0-9]+)\>(?<time>[^ ]* {1,2}[^ ]* [^ ]*) (?<host>[^ ]*) (?<ident>[a-zA-Z0-9_\/\.\-]*)(?:\[(?<pid>[0-9]+)\])?(?:[^\:]*\:)? *(?<message>.*)$
+          Time_Key time
+          Time_Format %b %d %H:%M:%S
+    EOT
+  }
+
+  depends_on = [aws_eks_cluster.main]
+}
+
+# ConfigMap for cluster information
+resource "kubernetes_config_map" "fluent_bit_cluster_info" {
+  metadata {
+    name      = "fluent-bit-cluster-info"
+    namespace = "kube-system"
+  }
+
+  data = {
+    "cluster.name" = aws_eks_cluster.main.name
+    "logs.region"  = data.aws_region.current.name
+    "http.server"  = "On"
+    "http.port"    = "2020"
+    "read.head"    = "Off"
+    "read.tail"    = "On"
+  }
+
+  depends_on = [aws_eks_cluster.main]
+}
+
+# DaemonSet for Fluent Bit
+resource "kubernetes_daemonset" "fluent_bit" {
+  metadata {
+    name      = "fluent-bit"
+    namespace = "kube-system"
+    labels = {
+      "k8s-app"                         = "fluent-bit-logging"
+      "version"                         = "v1"
+      "kubernetes.io/cluster-service"   = "true"
+    }
+  }
+
+  spec {
+    selector {
+      match_labels = {
+        "k8s-app" = "fluent-bit-logging"
+      }
+    }
+
+    template {
+      metadata {
+        labels = {
+          "k8s-app"                       = "fluent-bit-logging"
+          "version"                       = "v1"
+          "kubernetes.io/cluster-service" = "true"
+        }
+      }
+
+      spec {
+        service_account_name = kubernetes_service_account.fluent_bit.metadata[0].name
+        host_network         = true
+        dns_policy          = "ClusterFirstWithHostNet"
+        termination_grace_period_seconds = 10
+
+        toleration {
+          key      = "node-role.kubernetes.io/master"
+          operator = "Exists"
+          effect   = "NoSchedule"
+        }
+
+        toleration {
+          operator = "Exists"
+          effect   = "NoExecute"
+        }
+
+        toleration {
+          operator = "Exists"
+          effect   = "NoSchedule"
+        }
+
+        container {
+          name  = "fluent-bit"
+          image = "amazon/aws-for-fluent-bit:stable"
+          image_pull_policy = "Always"
+
+          env {
+            name = "AWS_REGION"
+            value_from {
+              config_map_key_ref {
+                name = kubernetes_config_map.fluent_bit_cluster_info.metadata[0].name
+                key  = "logs.region"
+              }
+            }
+          }
+
+          env {
+            name = "CLUSTER_NAME"
+            value_from {
+              config_map_key_ref {
+                name = kubernetes_config_map.fluent_bit_cluster_info.metadata[0].name
+                key  = "cluster.name"
+              }
+            }
+          }
+
+          env {
+            name = "HTTP_SERVER"
+            value_from {
+              config_map_key_ref {
+                name = kubernetes_config_map.fluent_bit_cluster_info.metadata[0].name
+                key  = "http.server"
+              }
+            }
+          }
+
+          env {
+            name = "HTTP_PORT"
+            value_from {
+              config_map_key_ref {
+                name = kubernetes_config_map.fluent_bit_cluster_info.metadata[0].name
+                key  = "http.port"
+              }
+            }
+          }
+
+          env {
+            name = "READ_FROM_HEAD"
+            value_from {
+              config_map_key_ref {
+                name = kubernetes_config_map.fluent_bit_cluster_info.metadata[0].name
+                key  = "read.head"
+              }
+            }
+          }
+
+          env {
+            name = "READ_FROM_TAIL"
+            value_from {
+              config_map_key_ref {
+                name = kubernetes_config_map.fluent_bit_cluster_info.metadata[0].name
+                key  = "read.tail"
+              }
+            }
+          }
+
+          env {
+            name = "HOST_NAME"
+            value_from {
+              field_ref {
+                field_path = "spec.nodeName"
+              }
+            }
+          }
+
+          env {
+            name = "HOSTNAME"
+            value_from {
+              field_ref {
+                api_version = "v1"
+                field_path  = "metadata.name"
+              }
+            }
+          }
+
+          env {
+            name  = "CI_VERSION"
+            value = "k8s/1.3.26"
+          }
+
+          resources {
+            limits = {
+              memory = "200Mi"
+            }
+            requests = {
+              cpu    = "500m"
+              memory = "100Mi"
+            }
+          }
+
+          volume_mount {
+            name       = "fluentbitstate"
+            mount_path = "/var/fluent-bit/state"
+          }
+
+          volume_mount {
+            name       = "varlog"
+            mount_path = "/var/log"
+            read_only  = true
+          }
+
+          volume_mount {
+            name       = "varlibdockercontainers"
+            mount_path = "/var/lib/docker/containers"
+            read_only  = true
+          }
+
+          volume_mount {
+            name       = "fluent-bit-config"
+            mount_path = "/fluent-bit/etc/"
+          }
+
+          volume_mount {
+            name       = "runlogjournal"
+            mount_path = "/run/log/journal"
+            read_only  = true
+          }
+
+          volume_mount {
+            name       = "dmesg"
+            mount_path = "/var/log/dmesg"
+            read_only  = true
+          }
+        }
+
+        volume {
+          name = "fluentbitstate"
+          host_path {
+            path = "/var/fluent-bit/state"
+          }
+        }
+
+        volume {
+          name = "varlog"
+          host_path {
+            path = "/var/log"
+          }
+        }
+
+        volume {
+          name = "varlibdockercontainers"
+          host_path {
+            path = "/var/lib/docker/containers"
+          }
+        }
+
+        volume {
+          name = "fluent-bit-config"
+          config_map {
+            name = kubernetes_config_map.fluent_bit_config.metadata[0].name
+          }
+        }
+
+        volume {
+          name = "runlogjournal"
+          host_path {
+            path = "/run/log/journal"
+          }
+        }
+
+        volume {
+          name = "dmesg"
+          host_path {
+            path = "/var/log/dmesg"
+          }
+        }
+      }
+    }
+  }
+
+  depends_on = [
+    aws_eks_cluster.main,
+    kubernetes_service_account.fluent_bit,
+    kubernetes_cluster_role_binding.fluent_bit_read,
+    kubernetes_config_map.fluent_bit_config,
+    kubernetes_config_map.fluent_bit_cluster_info,
+    aws_iam_role_policy_attachment.fluent_bit_cloudwatch_attachment
+  ]
+}
+
+# Output the IAM role ARN for reference
+output "fluent_bit_role_arn" {
+  description = "ARN of the Fluent Bit IAM role"
+  value       = aws_iam_role.fluent_bit_role.arn
+}
