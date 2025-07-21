@@ -340,10 +340,10 @@ resource "kubernetes_namespace" "prometheus_namespace" {
 # }
 
 
-# Step 4: Simplified Prometheus configuration
+# Step 4: Prometheus configuration with AMP remote write (following AWS documentation)
 locals {
   prometheus_values = {
-    # Basic service account configuration
+    # Service account configuration for IAM roles
     serviceAccounts = {
       server = {
         name = "amp-iamproxy-ingest-service-account"
@@ -353,8 +353,23 @@ locals {
       }
     }
     
-    # Basic server configuration
+    # Server configuration following AWS documentation
     server = {
+      # Remote write configuration to AMP
+      remoteWrite = [
+        {
+          url = "https://aps-workspaces.${data.aws_region.current.name}.amazonaws.com/workspaces/${aws_prometheus_workspace.prometheus_workspace.id}/api/v1/remote_write"
+          sigv4 = {
+            region = data.aws_region.current.name
+          }
+          queue_config = {
+            max_samples_per_send = 1000
+            max_shards          = 200
+            capacity            = 2500
+          }
+        }
+      ]
+      
       # Storage configuration
       persistentVolume = {
         enabled = true
@@ -380,23 +395,42 @@ locals {
     # Enable basic components
     nodeExporter = {
       enabled = true
+      resources = {
+        limits = {
+          cpu    = "200m"
+          memory = "256Mi"
+        }
+        requests = {
+          cpu    = "100m"
+          memory = "128Mi"
+        }
+      }
     }
     
     kubeStateMetrics = {
       enabled = true
+      resources = {
+        limits = {
+          cpu    = "200m"
+          memory = "256Mi"
+        }
+        requests = {
+          cpu    = "100m"
+          memory = "128Mi"
+        }
+      }
     }
     
-    # Disable unnecessary components for now
+    # Disable unnecessary components
     alertmanager = {
       enabled = false
     }
     
     pushgateway = {
-      enabled = false
+      enabled = false  # Disable since it was causing issues earlier
     }
   }
 }
-
 
 # Step 5: Install Prometheus using Helm
 resource "helm_release" "prometheus" {
