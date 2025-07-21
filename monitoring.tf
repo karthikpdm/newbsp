@@ -149,14 +149,14 @@ locals {
     # Enhanced scraping with custom configuration
     serverFiles = {
       "prometheus.yml" = {
-        global = {
-          scrape_interval = "30s"
-          evaluation_interval = "30s"
-          external_labels = {
-            cluster = aws_eks_cluster.main.name
-            region = data.aws_region.current.name
-          }
-        }
+        # global = {
+        #   scrape_interval = "30s"
+        #   evaluation_interval = "30s"
+        #   external_labels = {
+        #     cluster = aws_eks_cluster.main.name
+        #     region = data.aws_region.current.name
+        #   }
+        # }
         
         rule_files = []
         
