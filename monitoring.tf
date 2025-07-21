@@ -138,7 +138,7 @@ locals {
       
       # Enhanced scraping configuration
       extraArgs = {
-        "web.enable-lifecycle" = true
+        # "web.enable-lifecycle" = true
         "storage.tsdb.wal-compression" = true
       }
       
