@@ -393,9 +393,9 @@
 
 # fluent-bit-logging.tf
 
-# Get current AWS account ID and region
-data "aws_caller_identity" "current" {}
-data "aws_region" "current" {}
+# # Get current AWS account ID and region
+# data "aws_caller_identity" "current" {}
+# data "aws_region" "current" {}
 
 # IAM Policy for Fluent Bit CloudWatch Logs
 resource "aws_iam_policy" "fluent_bit_cloudwatch_policy" {
