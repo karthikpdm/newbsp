@@ -511,6 +511,38 @@
 
 # Data source for existing EKS cluster
 # Data source for existing EKS cluster - FIXED cluster name
+# Prometheus setup based on AWS documentation with existing VPC endpoints
+# Following AWS guide: "Set up ingestion from a new Prometheus server using Helm"
+
+# Data sources for existing infrastructure
+# data "aws_region" "current" {}
+# data "aws_caller_identity" "current" {}
+
+# # Data source for existing VPC
+# data "aws_vpc" "existing" {
+#   filter {
+#     name   = "tag:Name"
+#     values = ["bsp-vpc-poc"]
+#   }
+# }
+
+# # Data source for private subnet AZ1
+# data "aws_subnet" "private_az1" {
+#   filter {
+#     name   = "tag:Name"
+#     values = ["bsp-private-subnet-az1-poc"]
+#   }
+# }
+
+# # Data source for private subnet AZ2
+# data "aws_subnet" "private_az2" {
+#   filter {
+#     name   = "tag:Name"
+#     values = ["bsp-private-subnet-az2-poc"]
+#   }
+# }
+
+# Data source for existing EKS cluster - FIXED cluster name
 data "aws_eks_cluster" "main" {
   name = "bsp-eks-cluster11"
 }
@@ -524,37 +556,11 @@ data "aws_iam_openid_connect_provider" "eks_cluster" {
   url = data.aws_eks_cluster.main.identity[0].oidc[0].issuer
 }
 
-# Create Security Group for VPC Endpoints (since it's missing)
-resource "aws_security_group" "vpc_endpoints" {
-  name_prefix = "bsp-vpc-endpoints-"
-  vpc_id      = data.aws_vpc.existing.id
-  description = "Security group for VPC endpoints"
-
-  ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = [data.aws_vpc.existing.cidr_block]
-  }
-
-  ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = [data.aws_vpc.existing.cidr_block]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name        = "bsp-vpc-endpoints-sg"
-    Environment = "poc"
-    Project     = "bsp"
+# Data source for existing VPC endpoints security group
+data "aws_security_group" "vpc_endpoints" {
+  filter {
+    name   = "tag:Name" 
+    values = ["bsp-vpc-endpoints-sg"]
   }
 }
 
@@ -666,16 +672,9 @@ resource "aws_iam_role_policy_attachment" "amp_ingest_policy_attachment" {
 #   }
 # }
 
-# Step 1 from AWS docs: Add Helm repositories (done via Terraform)
-# resource "helm_repository" "prometheus_community" {
-#   name = "prometheus-community"
-#   url  = "https://prometheus-community.github.io/helm-charts"
-# }
-
-# resource "helm_repository" "kube_state_metrics" {
-#   name = "kube-state-metrics"
-#   url  = "https://kubernetes.github.io/kube-state-metrics"
-# }
+# Step 1 from AWS docs: Add Helm repositories 
+# Note: Terraform helm provider directly uses repository URLs in helm_release
+# This is equivalent to: helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 
 # Step 4: Set up the new server and start ingesting metrics
 # Create Prometheus values file as specified in AWS documentation
@@ -725,6 +724,14 @@ locals {
       }
       
       retention = "15d"
+      
+      # Enhanced Prometheus configuration for better monitoring
+      extraArgs = {
+        "storage.tsdb.retention.time" = "15d"
+        "storage.tsdb.retention.size" = "15GB"
+        "web.enable-lifecycle" = true
+        "web.enable-admin-api" = true
+      }
     }
     
     # Enable node exporter for comprehensive metrics
@@ -740,6 +747,11 @@ locals {
           memory = "128Mi"
         }
       }
+      # Collect additional node metrics
+      extraArgs = [
+        "--collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+|var/lib/kubelet/.+)($|/)",
+        "--collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs)$"
+      ]
     }
     
     # Enable kube-state-metrics
@@ -764,6 +776,95 @@ locals {
     
     pushgateway = {
       enabled = false
+    }
+    
+    # Enhanced scrape configurations
+    serverFiles = {
+      "prometheus.yml" = {
+        global = {
+          scrape_interval = "30s"
+          evaluation_interval = "30s"
+          external_labels = {
+            cluster = "bsp-eks-cluster11"
+            region = data.aws_region.current.name
+          }
+        }
+        
+        scrape_configs = [
+          {
+            job_name = "prometheus"
+            static_configs = [
+              {
+                targets = ["localhost:9090"]
+              }
+            ]
+          },
+          {
+            job_name = "kubernetes-nodes"
+            kubernetes_sd_configs = [
+              {
+                role = "node"
+              }
+            ]
+            relabel_configs = [
+              {
+                source_labels = ["__address__"]
+                regex = "(.+):10250"
+                target_label = "__address__"
+                replacement = "$1:9100"
+              }
+            ]
+          },
+          {
+            job_name = "kubernetes-pods"
+            kubernetes_sd_configs = [
+              {
+                role = "pod"
+              }
+            ]
+            relabel_configs = [
+              {
+                source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scrape"]
+                action = "keep"
+                regex = "true"
+              },
+              {
+                source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_path"]
+                action = "replace"
+                target_label = "__metrics_path__"
+                regex = "(.+)"
+              }
+            ]
+          },
+          {
+            job_name = "kubernetes-service-endpoints"
+            kubernetes_sd_configs = [
+              {
+                role = "endpoints"
+              }
+            ]
+            relabel_configs = [
+              {
+                source_labels = ["__meta_kubernetes_service_annotation_prometheus_io_scrape"]
+                action = "keep"
+                regex = "true"
+              },
+              {
+                source_labels = ["__meta_kubernetes_service_annotation_prometheus_io_scheme"]
+                action = "replace"
+                target_label = "__scheme__"
+                regex = "(https?)"
+              },
+              {
+                source_labels = ["__meta_kubernetes_service_annotation_prometheus_io_path"]
+                action = "replace"
+                target_label = "__metrics_path__"
+                regex = "(.+)"
+              }
+            ]
+          }
+        ]
+      }
     }
   }
 }
@@ -790,7 +891,7 @@ resource "helm_release" "prometheus" {
 # Wait for deployment to stabilize
 resource "time_sleep" "wait_for_prometheus" {
   depends_on = [helm_release.prometheus]
-  create_duration = "60s"
+  create_duration = "120s"
 }
 
 # Validation resource to check setup
@@ -808,10 +909,10 @@ resource "null_resource" "validate_prometheus_setup" {
       echo "✅ Helm Chart: prometheus-community/prometheus (Step 4 ✓)"
       echo ""
       echo "📋 Setup Details:"
+      echo "   - EKS Cluster: bsp-eks-cluster11"
       echo "   - AMP Workspace ID: ${aws_prometheus_workspace.bsp_amp.id}"
       echo "   - VPC Endpoint URL: https://${data.aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}"
       echo "   - Remote Write URL: https://${data.aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.bsp_amp.id}/api/v1/remote_write"
-      echo "   - EKS Cluster: bsp-eks-cluster"
       echo "   - Region: ${data.aws_region.current.name}"
       echo ""
       echo "🔍 Verification Commands:"
@@ -917,11 +1018,11 @@ resource "aws_grafana_workspace" "bsp_grafana" {
 output "prometheus_setup_info" {
   description = "Prometheus setup information following AWS documentation"
   value = {
-    # Step 1: Helm repositories added ✓
-    # helm_repositories = {
-    #   prometheus_community = helm_repository.prometheus_community.name
-    #   kube_state_metrics   = helm_repository.kube_state_metrics.name
-    # }
+    # Step 1: Helm repositories referenced ✓
+    helm_repositories = {
+      prometheus_community = "https://prometheus-community.github.io/helm-charts"
+      kube_state_metrics   = "https://kubernetes.github.io/kube-state-metrics"
+    }
     
     # Step 2: Namespace created ✓
     namespace = kubernetes_namespace.prometheus_namespace.metadata[0].name
@@ -953,6 +1054,12 @@ output "prometheus_setup_info" {
       id       = aws_grafana_workspace.bsp_grafana.id
       endpoint = aws_grafana_workspace.bsp_grafana.endpoint
     }
+    
+    # EKS cluster info
+    eks_cluster = {
+      name = "bsp-eks-cluster11"
+      endpoint = data.aws_eks_cluster.main.endpoint
+    }
   }
 }
 
@@ -966,7 +1073,7 @@ output "aws_documentation_verification" {
     check_namespace = "kubectl get namespace prometheus"
     
     # Verify Step 3: Check service account and IAM role
-    check_service_account = "kubectl get serviceaccount -n MONITORING amp-iamproxy-ingest-service-account -o yaml"
+    check_service_account = "kubectl get serviceaccount -n prometheus amp-iamproxy-ingest-service-account -o yaml"
     check_iam_role = "aws iam get-role --role-name amp-iamproxy-ingest-role"
     
     # Verify Step 4: Check Prometheus installation
@@ -982,5 +1089,9 @@ output "aws_documentation_verification" {
     
     # Test VPC endpoint connectivity
     test_vpc_endpoint = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- nslookup ${data.aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}"
+    
+    # Health checks
+    check_prometheus_health = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- wget -qO- 'http://localhost:9090/-/healthy'"
+    check_cluster_info = "kubectl cluster-info"
   }
 }
