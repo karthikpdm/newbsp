@@ -478,70 +478,6 @@
 
 
 
-# Prometheus setup based on AWS documentation with existing VPC endpoints
-# Following AWS guide: "Set up ingestion from a new Prometheus server using Helm"
-
-# Data sources for existing infrastructure
-# data "aws_region" "current" {}
-# data "aws_caller_identity" "current" {}
-
-# # Data source for existing VPC
-# data "aws_vpc" "existing" {
-#   filter {
-#     name   = "tag:Name"
-#     values = ["bsp-vpc-poc"]
-#   }
-# }
-
-# # Data source for private subnet AZ1
-# data "aws_subnet" "private_az1" {
-#   filter {
-#     name   = "tag:Name"
-#     values = ["bsp-private-subnet-az1-poc"]
-#   }
-# }
-
-# # Data source for private subnet AZ2
-# data "aws_subnet" "private_az2" {
-#   filter {
-#     name   = "tag:Name"
-#     values = ["bsp-private-subnet-az2-poc"]
-#   }
-# }
-
-# Data source for existing EKS cluster
-# Data source for existing EKS cluster - FIXED cluster name
-# Prometheus setup based on AWS documentation with existing VPC endpoints
-# Following AWS guide: "Set up ingestion from a new Prometheus server using Helm"
-
-# Data sources for existing infrastructure
-# data "aws_region" "current" {}
-# data "aws_caller_identity" "current" {}
-
-# # Data source for existing VPC
-# data "aws_vpc" "existing" {
-#   filter {
-#     name   = "tag:Name"
-#     values = ["bsp-vpc-poc"]
-#   }
-# }
-
-# # Data source for private subnet AZ1
-# data "aws_subnet" "private_az1" {
-#   filter {
-#     name   = "tag:Name"
-#     values = ["bsp-private-subnet-az1-poc"]
-#   }
-# }
-
-# # Data source for private subnet AZ2
-# data "aws_subnet" "private_az2" {
-#   filter {
-#     name   = "tag:Name"
-#     values = ["bsp-private-subnet-az2-poc"]
-#   }
-# }
-
 # Data source for existing EKS cluster - FIXED cluster name
 data "aws_eks_cluster" "main" {
   name = "bsp-eks-cluster11"
@@ -560,7 +496,7 @@ data "aws_iam_openid_connect_provider" "eks_cluster" {
 data "aws_security_group" "vpc_endpoints" {
   filter {
     name   = "tag:Name" 
-    values = ["bsp-vpc-endpoints-sg"]
+    values = ["vpc-endpoints-sg"]
   }
 }
 
