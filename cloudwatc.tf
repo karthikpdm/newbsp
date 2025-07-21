@@ -38,7 +38,7 @@ resource "aws_iam_role" "fluent_bit_role" {
 # ===================================
 
 resource "aws_iam_policy" "fluent_bit_policy" {
-  name = "bsp-fluent-bit-cloudwatch-policy"
+  name = "bsp-fluent-bit-cloudwatch-policy1"
 
   policy = jsonencode({
     Version = "2012-10-17"

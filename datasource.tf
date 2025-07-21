@@ -85,7 +85,7 @@ resource "aws_security_group" "eks_cluster" {
 
 # EKS Worker Nodes Security Group
 resource "aws_security_group" "eks_nodes" {
-  name        = "bsp-eks-node-sg"
+  name        = "bsp-eks-node-sg1"
   description = "Security group for EKS worker nodes"
   vpc_id      = data.aws_vpc.main.id
 

@@ -1,7 +1,7 @@
 # eks-cluster.tf
 # EKS Cluster - Private Configuration
 resource "aws_eks_cluster" "main" {
-  name     = "bsp-eks-cluster11"
+  name     = "bsp-eks-cluster1"
   role_arn = aws_iam_role.eks_cluster_role.arn
   version  = "1.31"
 

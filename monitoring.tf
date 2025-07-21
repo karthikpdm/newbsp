@@ -46,7 +46,7 @@ resource "aws_iam_role" "prometheus_ingest_role" {
 
 # IAM policy for AMP ingestion
 resource "aws_iam_policy" "prometheus_amp_policy" {
-  name        = "PrometheusAMPIngestPolicy"
+  name        = "PrometheusAMPIngestPolicy1"
   description = "Policy for Prometheus to ingest metrics to AMP"
 
   policy = jsonencode({
@@ -382,7 +382,7 @@ resource "aws_iam_role" "grafana_service_role" {
 
 # Enhanced Grafana policy for AMP access
 resource "aws_iam_policy" "grafana_amp_policy" {
-  name        = "GrafanaAMPPolicy"
+  name        = "GrafanaAMPPolicy1"
   description = "Policy for AWS Managed Grafana to access AMP"
 
   policy = jsonencode({
