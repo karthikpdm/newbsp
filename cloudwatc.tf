@@ -409,6 +409,10 @@
 
 # Note: data sources for account ID and region are already in main.tf
 
+# fluent-bit-logging.tf
+
+# Note: data sources for account ID and region are already in main.tf
+
 # IAM Policy for Fluent Bit CloudWatch Logs
 resource "aws_iam_policy" "fluent_bit_cloudwatch_policy" {
   name        = "FluentBitCloudWatchLogsPolicy"
@@ -574,6 +578,7 @@ resource "kubernetes_config_map" "fluent_bit_config" {
           Match               kube.*
           region              ${data.aws_region.current.name}
           log_group_name      /aws/eks/${aws_eks_cluster.main.name}/$${kubernetes['namespace_name']}
+          log_stream_prefix   pod-
           log_stream_name     $${kubernetes['pod_name']}
           auto_create_group   true
           log_retention_days  7
