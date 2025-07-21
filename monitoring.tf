@@ -624,29 +624,151 @@ output "prometheus_monitoring_setup" {
 }
 
 output "verification_commands" {
-  description = "Commands to verify the enhanced setup"
+  description = "Commands to verify the complete monitoring setup"
   value = {
     # Basic verification
-    check_namespace = "kubectl get namespace prometheus"
-    check_pods = "kubectl get pods -n prometheus"
-    check_services = "kubectl get svc -n prometheus"
+    check_namespace           = "kubectl get namespace prometheus"
+    check_pods               = "kubectl get pods -n prometheus"
+    check_services           = "kubectl get svc -n prometheus"
+    check_nodes              = "kubectl get nodes"
+    check_storage_classes    = "kubectl get storageclass"
     
     # Prometheus specific checks
-    check_prometheus_config = "kubectl get configmap -n prometheus prometheus-server -o yaml | grep remote_write -A 10"
-    check_prometheus_logs = "kubectl logs -n prometheus deployment/prometheus-server -c prometheus-server --tail=50"
-    check_service_account = "kubectl get serviceaccount -n prometheus amp-iamproxy-ingest-service-account -o yaml"
+    check_prometheus_config  = "kubectl get configmap -n prometheus prometheus-server -o yaml | grep remote_write -A 10"
+    check_prometheus_logs    = "kubectl logs -n prometheus deployment/prometheus-server -c prometheus-server --tail=50"
+    check_service_account    = "kubectl get serviceaccount -n prometheus amp-iamproxy-ingest-service-account -o yaml"
+    check_prometheus_targets = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- wget -qO- 'http://localhost:9090/api/v1/targets'"
+    
+    # Storage verification
+    check_pvcs              = "kubectl get pvc -n prometheus"
+    check_pvs               = "kubectl get pv"
     
     # Enhanced connectivity tests
-    test_vpc_endpoint = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- nslookup ${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}"
-    test_prometheus_health = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- wget -qO- 'http://localhost:9090/-/healthy'"
-    test_remote_write = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- wget -qO- 'http://localhost:9090/api/v1/query?query=prometheus_remote_storage_samples_total'"
+    test_vpc_endpoint       = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- nslookup ${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}"
+    test_prometheus_health  = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- wget -qO- 'http://localhost:9090/-/healthy'"
+    test_remote_write       = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- wget -qO- 'http://localhost:9090/api/v1/query?query=prometheus_remote_storage_samples_total'"
+    test_node_metrics       = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- wget -qO- 'http://localhost:9090/api/v1/query?query=up'"
+    
+    # Node monitoring queries
+    test_cpu_usage          = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- wget -qO- 'http://localhost:9090/api/v1/query?query=100%20-%20(avg%20by%20(instance)%20(irate(node_cpu_seconds_total{mode=%22idle%22}[5m]))%20*%20100)'"
+    test_memory_usage       = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- wget -qO- 'http://localhost:9090/api/v1/query?query=(1%20-%20(node_memory_MemAvailable_bytes%20/%20node_memory_MemTotal_bytes))%20*%20100'"
+    test_disk_usage         = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- wget -qO- 'http://localhost:9090/api/v1/query?query=(1%20-%20(node_filesystem_avail_bytes{fstype!=%22tmpfs%22}%20/%20node_filesystem_size_bytes{fstype!=%22tmpfs%22}))%20*%20100'"
+    
+    # Network connectivity tests
+    test_internal_dns       = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- nslookup kubernetes.default.svc.cluster.local"
+    test_node_exporter      = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- wget -qO- --timeout=5 'http://prometheus-prometheus-node-exporter.prometheus.svc.cluster.local:9100/metrics' | head -5"
+    test_kube_state_metrics = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- wget -qO- --timeout=5 'http://prometheus-kube-state-metrics.prometheus.svc.cluster.local:8080/metrics' | head -5"
+    
+    # Remote storage validation
+    check_remote_samples    = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- wget -qO- 'http://localhost:9090/api/v1/query?query=prometheus_remote_storage_succeeded_samples_total'"
+    check_remote_failures   = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- wget -qO- 'http://localhost:9090/api/v1/query?query=prometheus_remote_storage_failed_samples_total'"
+    check_queue_length      = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- wget -qO- 'http://localhost:9090/api/v1/query?query=prometheus_remote_storage_pending_samples'"
     
     # Port forwarding for local access
-    port_forward = "kubectl port-forward -n prometheus svc/prometheus-server 9090:80"
+    port_forward_prometheus = "kubectl port-forward -n prometheus svc/prometheus-server 9090:80"
     
     # AWS CLI checks
-    check_iam_role = "aws iam get-role --role-name prometheus-amp-ingest-role"
-    check_amp_workspace = "aws amp describe-workspace --workspace-id ${aws_prometheus_workspace.prometheus_workspace.id}"
+    check_iam_role          = "aws iam get-role --role-name prometheus-amp-ingest-role"
+    check_amp_workspace     = "aws amp describe-workspace --workspace-id ${aws_prometheus_workspace.prometheus_workspace.id}"
     check_grafana_workspace = "aws grafana describe-workspace --workspace-id ${aws_grafana_workspace.grafana.id}"
+    check_ebs_csi_addon     = "aws eks describe-addon --cluster-name ${aws_eks_cluster.main.name} --addon-name aws-ebs-csi-driver"
+    
+    # Cluster resource monitoring
+    check_node_resources    = "kubectl top nodes"
+    check_pod_resources     = "kubectl top pods -n prometheus"
+    check_all_pods          = "kubectl get pods -A"
+    check_cluster_events    = "kubectl get events -n prometheus --sort-by=.metadata.creationTimestamp"
+    
+    # Troubleshooting commands
+    describe_prometheus_pod = "kubectl describe pod -n prometheus -l app.kubernetes.io/name=prometheus,app.kubernetes.io/component=server"
+    check_endpoints         = "kubectl get endpoints -n prometheus"
+    check_secrets           = "kubectl get secrets -n prometheus"
+    
+    # Advanced monitoring queries
+    check_scrape_duration   = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- wget -qO- 'http://localhost:9090/api/v1/query?query=prometheus_target_scrape_duration_seconds'"
+    check_metric_count      = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- wget -qO- 'http://localhost:9090/api/v1/label/__name__/values' | jq '.data | length'"
+    check_target_count      = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- wget -qO- 'http://localhost:9090/api/v1/targets' | jq '.data.activeTargets | length'"
+  }
+}
+
+output "grafana_access_info" {
+  description = "Information for accessing Grafana and configuring data sources"
+  value = {
+    grafana_url             = "https://${aws_grafana_workspace.grafana.endpoint}"
+    amp_datasource_url      = "https://${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.prometheus_workspace.id}/"
+    recommended_dashboards  = {
+      node_exporter_full    = "Dashboard ID: 1860 (most comprehensive)"
+      kubernetes_cluster    = "Dashboard ID: 315 (cluster overview)"  
+      node_exporter_server  = "Dashboard ID: 405 (server metrics)"
+      kubernetes_pods_nodes = "Dashboard ID: 6417 (pods and nodes)"
+    }
+    grafana_datasource_config = {
+      type                  = "prometheus"
+      url                   = "https://${aws_vpc_endpoint.aps_workspaces.dns_entry[0].dns_name}/workspaces/${aws_prometheus_workspace.prometheus_workspace.id}/"
+      access                = "proxy"
+      auth_type             = "AWS SigV4"
+      default_region        = "${data.aws_region.current.name}"
+      service               = "aps"
+    }
+  }
+}
+
+output "monitoring_queries" {
+  description = "Prometheus queries for monitoring nodes"
+  value = {
+    # CPU Monitoring
+    cpu_usage_percent       = "100 - (avg by (instance) (irate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)"
+    cpu_usage_by_mode       = "irate(node_cpu_seconds_total[5m]) * 100"
+    avg_cpu_usage           = "avg(100 - (avg by (instance) (irate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100))"
+    top_cpu_nodes           = "topk(5, 100 - (avg by (instance) (irate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100))"
+    
+    # Memory Monitoring  
+    memory_usage_percent    = "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100"
+    memory_usage_gb         = "(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / 1024 / 1024 / 1024"
+    memory_available_gb     = "node_memory_MemAvailable_bytes / 1024 / 1024 / 1024"
+    top_memory_nodes        = "topk(5, (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100)"
+    
+    # Disk Monitoring
+    disk_usage_percent      = "(1 - (node_filesystem_avail_bytes{fstype!=\"tmpfs\"} / node_filesystem_size_bytes{fstype!=\"tmpfs\"})) * 100"
+    disk_usage_gb           = "(node_filesystem_size_bytes{fstype!=\"tmpfs\"} - node_filesystem_avail_bytes{fstype!=\"tmpfs\"}) / 1024 / 1024 / 1024"
+    
+    # Network Monitoring
+    network_bytes_received  = "irate(node_network_receive_bytes_total[5m])"
+    network_bytes_sent      = "irate(node_network_transmit_bytes_total[5m])"
+    
+    # Load Average
+    load_1min               = "node_load1"
+    load_5min               = "node_load5" 
+    load_15min              = "node_load15"
+    
+    # System Monitoring
+    uptime_days             = "node_time_seconds - node_boot_time_seconds"
+    running_processes       = "node_procs_running"
+    cpu_cores               = "count by (instance) (node_cpu_seconds_total{mode=\"idle\"})"
+  }
+}
+
+output "troubleshooting_guide" {
+  description = "Common troubleshooting scenarios and commands"
+  value = {
+    # Pod issues
+    pod_not_starting        = "kubectl describe pod -n prometheus [POD_NAME] && kubectl logs -n prometheus [POD_NAME] --all-containers=true"
+    config_issues           = "kubectl logs -n prometheus deployment/prometheus-server -c prometheus-server | grep -i error"
+    
+    # Storage issues  
+    pvc_pending             = "kubectl describe pvc -n prometheus && kubectl get storageclass"
+    volume_mount_issues     = "kubectl describe pod -n prometheus [POD_NAME] | grep -A 10 -B 10 Volume"
+    
+    # Network issues
+    service_discovery       = "kubectl get endpoints -n prometheus && kubectl get svc -n prometheus"
+    dns_resolution          = "kubectl exec -n prometheus deployment/prometheus-server -c prometheus-server -- nslookup [SERVICE_NAME]"
+    
+    # Remote write issues
+    amp_connectivity        = "kubectl logs -n prometheus deployment/prometheus-server -c prometheus-server | grep -i 'remote_write\\|amp\\|storage'"
+    check_iam_permissions   = "kubectl logs -n prometheus deployment/prometheus-server -c prometheus-server | grep -i 'permission\\|denied\\|unauthorized'"
+    
+    # Resource issues
+    resource_constraints    = "kubectl describe node && kubectl top nodes && kubectl top pods -n prometheus"
+    oom_killed             = "kubectl get events -n prometheus | grep -i 'oom\\|killed'"
   }
 }
