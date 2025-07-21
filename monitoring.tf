@@ -510,12 +510,13 @@
 # }
 
 # Data source for existing EKS cluster
+# Data source for existing EKS cluster - FIXED cluster name
 data "aws_eks_cluster" "main" {
-  name = "bsp-eks-cluster"
+  name = "bsp-eks-cluster11"
 }
 
 data "aws_eks_cluster_auth" "main" {
-  name = "bsp-eks-cluster"
+  name = "bsp-eks-cluster11"
 }
 
 # Data source for existing OIDC provider
@@ -523,18 +524,45 @@ data "aws_iam_openid_connect_provider" "eks_cluster" {
   url = data.aws_eks_cluster.main.identity[0].oidc[0].issuer
 }
 
+# Create Security Group for VPC Endpoints (since it's missing)
+resource "aws_security_group" "vpc_endpoints" {
+  name_prefix = "bsp-vpc-endpoints-"
+  vpc_id      = data.aws_vpc.existing.id
+  description = "Security group for VPC endpoints"
+
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [data.aws_vpc.existing.cidr_block]
+  }
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = [data.aws_vpc.existing.cidr_block]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name        = "bsp-vpc-endpoints-sg"
+    Environment = "poc"
+    Project     = "bsp"
+  }
+}
+
 # Data source for existing VPC endpoints
 data "aws_vpc_endpoint" "aps_workspaces" {
   filter {
     name   = "tag:Name"
     values = ["amp-vpc-endpoint"]
-  }
-}
-
-data "aws_security_group" "vpc_endpoints" {
-  filter {
-    name   = "tag:Name"
-    values = ["bsp-vpc-endpoints-sg"]
   }
 }
 
